@@ -1,6 +1,12 @@
 // 앱 셸 — 탭 전환, 여행 열기/만들기/공유, 설정, 동기화 표시
 import { h, $, modal, toast, input, field, confirmDialog } from './ui.js';
-import { store, listTrips, forgetTrip, lastTripCode, fmtDate, tripDays, mergeDoc, catOf } from './store.js';
+import {
+  store, listTrips, forgetTrip, lastTripCode, fmtDate, tripDays, mergeDoc, catOf,
+  syncTripList, clearLocalTripList,
+} from './store.js';
+import {
+  isLoggedIn, currentUser, signIn, signUp, signOut, refreshSession, onAuthChange, ID_RULE, ID_HINT,
+} from './auth.js';
 import { remoteEnabled } from './supabase.js';
 import { tripToMarkdown } from './exportMd.js';
 import { openItemEditor } from './itemEditor.js';
@@ -180,6 +186,8 @@ function openTripList() {
   const list = listTrips();
   const body = h('div');
 
+  body.append(accountBar(() => { m.close(); openTripList(); }));
+
   body.append(h('div.list-actions',
     h('button.btn.primary', { onclick: () => { m.close(); openNewTrip(); } }, '+ 새 여행'),
     h('button.btn', { onclick: () => { m.close(); openJoin(); } }, '코드로 열기'),
@@ -206,6 +214,120 @@ function openTripList() {
   }
 
   const m = modal({ title: '내 여행', body, actions: [{ label: '닫기' }] });
+}
+
+// ── 계정 ──────────────────────────────────────────────────
+/** 여행 목록 위에 붙는 로그인 상태 줄 */
+function accountBar(reopen) {
+  if (!remoteEnabled()) {
+    return h('p.muted.small', { style: { marginBottom: '12px' } },
+      'Supabase 가 설정되지 않아 계정 기능을 쓸 수 없습니다.');
+  }
+
+  if (!isLoggedIn()) {
+    return h('div.account-bar',
+      h('div.grow',
+        h('strong', '로그인하면 기기가 바뀌어도 목록이 그대로'),
+        h('div.muted.small', '지금은 이 기기에만 저장됩니다'),
+      ),
+      h('button.btn.small.primary', { onclick: () => openAuth(reopen) }, '로그인'),
+    );
+  }
+
+  const me = currentUser();
+  return h('div.account-bar',
+    h('div.grow',
+      h('strong', `${me.loginId} 님`),
+      h('div.muted.small', '여행 목록이 계정에 저장됩니다'),
+    ),
+    h('button.btn.small', {
+      onclick: async () => {
+        if (!await confirmDialog('로그아웃',
+          '이 기기의 여행 목록이 지워집니다.\n여행 내용은 서버에 그대로 남아 있어, 다시 로그인하면 복구됩니다.', '로그아웃')) return;
+        signOut();
+        clearLocalTripList();
+        toast('로그아웃했습니다');
+        reopen();
+      },
+    }, '로그아웃'),
+  );
+}
+
+/** 로그인 / 가입 모달 (탭 전환형) */
+function openAuth(onDone) {
+  let mode = 'in';   // 'in' | 'up'
+
+  const fId = input({ placeholder: '아이디', autocapitalize: 'none', autocorrect: 'off', spellcheck: false });
+  const fPw = input({ type: 'password', placeholder: '비밀번호', autocomplete: 'current-password' });
+  const fPw2 = input({ type: 'password', placeholder: '비밀번호 확인', autocomplete: 'new-password' });
+  const pw2Field = field('비밀번호 확인', fPw2);
+  const hint = h('p.muted.small');
+  const tabs = h('div.auth-tabs');
+
+  const paint = () => {
+    tabs.innerHTML = '';
+    for (const [k, label] of [['in', '로그인'], ['up', '회원가입']]) {
+      tabs.append(h('button', {
+        class: 'auth-tab' + (mode === k ? ' on' : ''),
+        onclick: () => { mode = k; paint(); },
+      }, label));
+    }
+    pw2Field.hidden = mode === 'in';
+    hint.textContent = mode === 'up'
+      ? `아이디는 ${ID_HINT}, 비밀번호는 6자 이상.`
+      : '가입한 아이디와 비밀번호를 입력하세요.';
+    okBtn.textContent = mode === 'in' ? '로그인' : '가입하고 시작';
+  };
+
+  const okBtn = h('button.btn.primary', { onclick: () => submit() }, '로그인');
+
+  const submit = async () => {
+    const id = fId.value.trim();
+    const pw = fPw.value;
+
+    if (!ID_RULE.test(id)) { toast(`아이디는 ${ID_HINT}`); return; }
+    if (pw.length < 6) { toast('비밀번호는 6자 이상이어야 합니다'); return; }
+    if (mode === 'up' && pw !== fPw2.value) { toast('비밀번호가 서로 다릅니다'); return; }
+
+    okBtn.disabled = true;
+    okBtn.textContent = mode === 'in' ? '로그인 중…' : '가입 중…';
+    try {
+      if (mode === 'in') await signIn(id, pw);
+      else await signUp(id, pw);
+
+      toast(`${id} 님으로 로그인했습니다`);
+      m.close();
+      await syncTripList();     // 다른 기기에서 만든 여행을 이 기기로 가져온다
+      onDone && onDone();
+    } catch (e) {
+      toast(e.message);
+      okBtn.disabled = false;
+      paint();
+    }
+  };
+
+  fPw.addEventListener('keydown', e => { if (e.key === 'Enter' && mode === 'in') submit(); });
+  fPw2.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+
+  const m = modal({
+    title: '계정',
+    body: h('div.form',
+      tabs,
+      field('아이디', fId),
+      field('비밀번호', fPw),
+      pw2Field,
+      hint,
+      h('p.muted.small', '※ 이메일이 아니라 아이디로 가입합니다. 비밀번호를 잊으면 복구할 수 없으니 잘 기억해 주세요.'),
+    ),
+    actions: [{ label: '취소' }, { label: '로그인', primary: true, onClick: () => { submit(); return false; } }],
+  });
+
+  // modal 이 만든 기본 버튼 대신 우리 버튼을 쓰려고 교체
+  const foot = m.el.querySelector('.modal-foot');
+  foot.lastChild.replaceWith(okBtn);
+
+  paint();
+  setTimeout(() => fId.focus(), 100);
 }
 
 function openNewTrip() {
@@ -437,6 +559,16 @@ async function boot() {
   else openTripList();
 }
 
+/**
+ * 로그인 상태라면 토큰을 한 번 갱신하고 목록을 서버와 맞춘다.
+ * 앱을 며칠 만에 열어도 만료된 토큰 때문에 목록이 빈 채로 보이지 않게 하려는 것.
+ */
+async function bootAccount() {
+  if (!isLoggedIn() || !remoteEnabled()) return;
+  await refreshSession();
+  if (isLoggedIn()) await syncTripList();
+}
+
 // 해시만 바뀌면 페이지가 다시 로드되지 않으므로(=boot 이 안 돎) 여기서 직접 처리한다.
 // 앱 바로가기(#tab=budget)를 이미 열려 있는 창이 받아내는 경우가 여기에 해당.
 window.addEventListener('hashchange', () => {
@@ -448,6 +580,8 @@ window.addEventListener('hashchange', () => {
 });
 window.addEventListener('pagehide', () => store.flush());
 
+// 계정 동기화는 앱 표시를 막지 않도록 백그라운드로 돌린다
+bootAccount().catch(e => console.warn('[account] 초기화 실패', e));
 boot();
 
 // ── 서비스 워커 (PWA) ─────────────────────────────────────

@@ -9,7 +9,11 @@
 // 덕분에 "A는 1일차를 고치고 B는 준비물을 고쳤는데 나중에 저장한 쪽이 상대 작업을 날림"
 // 같은 사고가 생기지 않는다. 같은 항목의 같은 필드를 동시에 고친 경우만 나중 값이 이긴다.
 // ─────────────────────────────────────────────────────────────
-import { remoteEnabled, fetchTrip, createTrip, pushTrip } from './supabase.js';
+import {
+  remoteEnabled, fetchTrip, createTrip, pushTrip,
+  fetchMyTrips, upsertMyTrip, removeMyTrip,
+} from './supabase.js';
+import { isLoggedIn, currentUser } from './auth.js';
 import { POLL_MS, PUSH_DEBOUNCE_MS } from './config.js';
 
 const LS_TRIPS = 'tp.trips';        // 내 기기에 등록된 여행 목록
@@ -114,22 +118,81 @@ function gc(doc) {
   return doc;
 }
 
-// ── 여행 목록(로컬) ────────────────────────────────────────
+// ── 여행 목록 ──────────────────────────────────────────────
+// 목록은 항상 로컬(localStorage)에 두고 즉시 렌더한다.
+// 로그인한 경우에만 서버(user_trips)와 양방향으로 맞춘다 → 다른 기기에서도 같은 목록이 보인다.
 export function listTrips() {
   try { return JSON.parse(localStorage.getItem(LS_TRIPS) || '[]'); } catch { return []; }
 }
 function saveTrips(list) {
   localStorage.setItem(LS_TRIPS, JSON.stringify(list));
 }
+
 export function rememberTrip(code, title) {
   const list = listTrips().filter(t => t.code !== code);
   list.unshift({ code, title, opened: now() });
-  saveTrips(list.slice(0, 30));
+  saveTrips(list.slice(0, 50));
+
+  if (isLoggedIn()) {
+    const me = currentUser();
+    upsertMyTrip(me.id, code, title).catch(e => console.warn('[account] 목록 저장 실패', e));
+  }
 }
+
 export function forgetTrip(code) {
   saveTrips(listTrips().filter(t => t.code !== code));
   localStorage.removeItem(LS_DOC(code));
   if (localStorage.getItem(LS_LAST) === code) localStorage.removeItem(LS_LAST);
+
+  if (isLoggedIn()) removeMyTrip(code).catch(e => console.warn('[account] 목록 삭제 실패', e));
+}
+
+/**
+ * 로그인 직후 / 앱 시작 시 서버 목록과 로컬 목록을 합친다.
+ *  · 서버에만 있는 여행 → 로컬에 추가 (다른 기기에서 만든 것)
+ *  · 로컬에만 있는 여행 → 서버에 올림 (로그인 전에 이 기기에서 만든 것)
+ * 반환: 합쳐진 목록
+ */
+export async function syncTripList() {
+  if (!isLoggedIn() || !remoteEnabled()) return listTrips();
+
+  const local = listTrips();
+  let remote = [];
+  try {
+    remote = (await fetchMyTrips()) || [];
+  } catch (e) {
+    console.warn('[account] 목록 불러오기 실패', e);
+    return local;
+  }
+
+  const byCode = new Map();
+  for (const r of remote) {
+    byCode.set(r.code, { code: r.code, title: r.title || '', opened: new Date(r.opened_at).getTime() });
+  }
+
+  const me = currentUser();
+  const uploads = [];
+  for (const l of local) {
+    const r = byCode.get(l.code);
+    if (!r) {
+      // 로그인 전에 이 기기에서 만든 여행 → 계정에 편입
+      byCode.set(l.code, l);
+      uploads.push(upsertMyTrip(me.id, l.code, l.title));
+    } else if (l.opened > r.opened) {
+      byCode.set(l.code, l);   // 이 기기에서 더 최근에 열었으면 그 제목·시각을 채택
+    }
+  }
+  await Promise.allSettled(uploads);
+
+  const merged = [...byCode.values()].sort((a, b) => (b.opened || 0) - (a.opened || 0)).slice(0, 50);
+  saveTrips(merged);
+  return merged;
+}
+
+/** 로그아웃 시 이 기기의 목록을 비운다 (여행 데이터 자체는 서버에 그대로 남는다) */
+export function clearLocalTripList() {
+  saveTrips([]);
+  localStorage.removeItem(LS_LAST);
 }
 
 // ── 스토어 본체 ────────────────────────────────────────────
