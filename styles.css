@@ -173,6 +173,14 @@ main.view-map .chips, main.view-map .map-tools { padding-left: 12px; padding-rig
 .gap::before { content: ''; width: 2px; height: 16px; border-radius: 2px; background: var(--line-strong); flex: none; margin-left: 9px; }
 .gap.tight { color: var(--danger); }
 
+/* 여행 기간을 벗어난 일정 경고 */
+.orphan {
+  margin-top: 22px; padding: 12px; border-radius: 14px;
+  background: var(--danger-soft); border: 1px solid var(--line);
+}
+.orphan .section-title { color: var(--danger); }
+.orphan p { margin: 0 0 10px; }
+
 /* 일차 메모 */
 .day-note {
   background: var(--accent-soft); border: 1px solid var(--line);

@@ -140,6 +140,9 @@ class Store extends EventTarget {
     this.doc = emptyDoc();
     this.sync = remoteEnabled() ? 'idle' : 'local';  // local | idle | pushing | pulling | error
     this.dirty = false;
+    // 편집이 일어날 때마다 1 증가. 전송 중에 편집이 끼어들었는지 판별하는 유일한 근거다.
+    // update() 는 doc 을 제자리에서 고치므로 객체 동일성 비교로는 변경을 알 수 없다.
+    this.rev = 0;
     this._pushTimer = null;
     this._pollTimer = null;
   }
@@ -150,7 +153,10 @@ class Store extends EventTarget {
   setSync(s) { if (this.sync !== s) { this.sync = s; this.emit('sync'); } }
 
   // ── 열기/만들기 ─────────────────────────────────────────
-  async open(code) {
+  async open(rawCode) {
+    // 서버(trip_get)는 코드를 대문자로 맞춰 조회한다. 로컬 저장 키도 같이 맞춰야
+    // 소문자 링크로 들어왔을 때 사본이 둘로 갈라지지 않는다.
+    const code = String(rawCode || '').trim().toUpperCase();
     this.code = code;
     let local = null;
     try { local = JSON.parse(localStorage.getItem(LS_DOC(code)) || 'null'); } catch { }
@@ -218,6 +224,7 @@ class Store extends EventTarget {
   /** fn(doc) 안에서 문서를 직접 수정한다. mt 갱신은 아래 헬퍼들이 담당. */
   update(fn) {
     fn(this.doc);
+    this.rev++;
     this._persist();
     this.emit('change');
     this._schedulePush();
@@ -272,7 +279,7 @@ class Store extends EventTarget {
     this._pushTimer = setTimeout(() => this._push(), PUSH_DEBOUNCE_MS);
   }
 
-  async _push() {
+  async _push(opts = {}) {
     if (!remoteEnabled() || !this.code || !this.dirty) return;
     this.setSync('pushing');
     const snapshot = this.doc;
@@ -282,11 +289,20 @@ class Store extends EventTarget {
       const merged = gc(mergeDoc(snapshot, row ? row.doc : null));
       this.doc = mergeDoc(merged, this.doc);   // push 대기 중 생긴 로컬 변경까지 반영
       this._persist();
-      // 서버에 행이 없으면(직접 지웠거나 로컬로만 만든 여행) 새로 만든다
-      if (!row) await createTrip(this.code, this.doc);
-      else await pushTrip(this.code, this.doc);
-      this.dirty = false;
-      this.setSync('idle');
+
+      // 전송 직전의 편집 횟수를 기억한다.
+      // 요청이 오가는 동안 사용자가 또 편집하면 그 내용은 이번 요청 본문에 없는데,
+      // 그때 dirty 를 지워버리면 다음 편집이 있을 때까지 서버에 안 올라간다.
+      const sentRev = this.rev;
+      if (!row) await createTrip(this.code, this.doc, opts);
+      else await pushTrip(this.code, this.doc, opts);
+
+      if (this.rev === sentRev) {
+        this.dirty = false;
+        this.setSync('idle');
+      } else {
+        this._schedulePush();   // 전송 중에 생긴 변경을 이어서 올린다
+      }
       this.emit('change');
     } catch (e) {
       console.warn('[sync] push 실패', e);
@@ -325,10 +341,13 @@ class Store extends EventTarget {
     window.addEventListener('online', () => { this._pull(); this._schedulePush(); });
   }
 
-  /** 앱을 닫기 직전 남은 변경을 즉시 밀어올린다 */
+  /**
+   * 앱을 닫기 직전 남은 변경을 즉시 밀어올린다.
+   * keepalive 를 켜야 페이지가 사라진 뒤에도 요청이 완주한다.
+   */
   flush() {
     clearTimeout(this._pushTimer);
-    if (this.dirty) this._push();
+    if (this.dirty) this._push({ keepalive: true });
   }
 }
 
@@ -395,14 +414,27 @@ export function amountKRW(amount, cur, meta) {
   return amt;
 }
 
+export const peopleOf = meta => Math.max(1, Number(meta.people) || 1);
+
+/**
+ * "1인 기준" 비용의 인원 배수.
+ *
+ * ppRaw 는 amount/spent 가 "1인당 금액"으로 저장됐다는 표식이다.
+ * 예전에는 저장 시점에 인원을 곱해 총액을 넣었는데, 그러면 같은 항목을 다시 열어
+ * 저장할 때마다 인원수가 또 곱해졌다(2명이면 10만 → 20만 → 40만).
+ * 이제는 입력값을 그대로 두고 화면에 보여줄 때만 곱한다.
+ * ppRaw 가 없는 옛 레코드는 이미 총액이므로 곱하지 않는다.
+ */
+const perPersonFactor = (rec, meta) => (rec.perPerson && rec.ppRaw ? peopleOf(meta) : 1);
+
 /** 레코드의 "예상" 금액 (items 는 cost, costs 는 amount) */
 export function toKRW(rec, meta) {
-  return amountKRW(rec.cost ?? rec.amount, rec.cur, meta);
+  return amountKRW(rec.cost ?? rec.amount, rec.cur, meta) * perPersonFactor(rec, meta);
 }
 
 /** 레코드의 "실제 지출" 금액. 입력 안 했으면 0. */
 export function spentKRW(rec, meta) {
-  return amountKRW(rec.spent, rec.cur, meta);
+  return amountKRW(rec.spent, rec.cur, meta) * perPersonFactor(rec, meta);
 }
 
 /** 실제 지출을 한 번이라도 입력했는지 (0원 지출과 미입력을 구분) */

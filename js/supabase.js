@@ -8,7 +8,12 @@ import { SB_URL, SB_KEY } from './config.js';
 
 export const remoteEnabled = () => Boolean(SB_URL && SB_KEY);
 
-async function rpc(fn, args) {
+/**
+ * @param opts.keepalive 페이지가 닫히는 중에도 요청을 끝까지 보낸다.
+ *   pagehide 에서 보내는 마지막 저장에 필요하다 — 없으면 브라우저가 요청을 취소해
+ *   앱을 끄기 직전 편집이 서버에 도달하지 못한다. (본문 64KB 제한)
+ */
+async function rpc(fn, args, opts = {}) {
   if (!remoteEnabled()) throw new Error('Supabase 미설정');
   const res = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
@@ -18,6 +23,7 @@ async function rpc(fn, args) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(args),
+    keepalive: Boolean(opts.keepalive),
   });
   const text = await res.text();
   let body = null;
@@ -36,11 +42,11 @@ export async function fetchTrip(code) {
 }
 
 /** 새 여행 생성. 코드가 이미 있으면 false 를 돌려준다. */
-export async function createTrip(code, doc) {
-  return await rpc('trip_create', { p_code: code, p_doc: doc }) === true;
+export async function createTrip(code, doc, opts) {
+  return await rpc('trip_create', { p_code: code, p_doc: doc }, opts) === true;
 }
 
 /** 문서 전체 덮어쓰기 (필드 단위 병합은 store.mergeDoc 가 이미 끝낸 상태). */
-export async function pushTrip(code, doc) {
-  return rpc('trip_save', { p_code: code, p_doc: doc });
+export async function pushTrip(code, doc, opts) {
+  return rpc('trip_save', { p_code: code, p_doc: doc }, opts);
 }

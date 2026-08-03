@@ -2,7 +2,7 @@
 // 실제 지출을 입력하면 예상 대비 차액까지 같이 보여준다.
 import { h, modal, input, select, field, toast, confirmDialog } from '../ui.js';
 import {
-  store, tripDays, catOf, CATEGORIES, toKRW, spentKRW, hasSpent, won, wonDiff, dayColor,
+  store, tripDays, catOf, CATEGORIES, toKRW, spentKRW, hasSpent, won, wonDiff, dayColor, peopleOf,
 } from '../store.js';
 
 export function renderBudget(root) {
@@ -15,7 +15,7 @@ export function renderBudget(root) {
   const itemTotal = items.reduce((s, i) => s + toKRW(i, meta), 0);
   const extraTotal = extras.reduce((s, c) => s + toKRW(c, meta), 0);
   const total = itemTotal + extraTotal;
-  const people = Math.max(1, Number(meta.people) || 1);
+  const people = peopleOf(meta);
 
   const spentTotal = all.reduce((s, r) => s + spentKRW(r, meta), 0);
   const anySpent = all.some(hasSpent);
@@ -106,7 +106,11 @@ export function renderBudget(root) {
         h('span.cat-dot', { style: { background: cat.color + '26', color: cat.color } }, cat.icon),
         h('div.grow',
           h('div', c.label || '(이름 없음)'),
-          hasSpent(c) ? h('div.muted.small', `실제 ${won(spentKRW(c, meta))}`) : null,
+          h('div.muted.small',
+            c.perPerson ? `1인 ${won(toKRW(c, meta) / people)} × ${people}명` : null,
+            c.perPerson && hasSpent(c) ? ' · ' : null,
+            hasSpent(c) ? `실제 ${won(spentKRW(c, meta))}` : null,
+          ),
         ),
         h('strong.money', won(est)),
       ));
@@ -117,10 +121,16 @@ export function renderBudget(root) {
 
 function openCostEditor(existing) {
   const meta = store.doc.meta;
+  const people = peopleOf(meta);
   const rec = existing || { cat: 'etc', cur: 'krw' };
+
+  // 옛 레코드(perPerson 인데 ppRaw 없음)는 amount 가 이미 총액이라 1인당 값으로 되돌려 보여준다
+  const legacyTotal = rec.perPerson && !rec.ppRaw;
+  const asEntered = v => (v == null || v === '' ? '' : legacyTotal ? Number(v) / people : v);
+
   const fLabel = input({ value: rec.label || '', placeholder: '예: 왕복 항공권' });
-  const fAmt = input({ type: 'number', inputmode: 'decimal', min: '0', value: rec.amount ?? '', placeholder: '0' });
-  const fSpent = input({ type: 'number', inputmode: 'decimal', min: '0', value: rec.spent ?? '', placeholder: '아직 안 씀' });
+  const fAmt = input({ type: 'number', inputmode: 'decimal', min: '0', value: asEntered(rec.amount), placeholder: '0' });
+  const fSpent = input({ type: 'number', inputmode: 'decimal', min: '0', value: asEntered(rec.spent), placeholder: '아직 안 씀' });
   const fCur = select(
     [{ value: 'krw', label: '원' }, ...(meta.curLabel ? [{ value: 'loc', label: meta.curLabel }] : [])],
     rec.cur || 'krw',
@@ -143,16 +153,16 @@ function openCostEditor(existing) {
     label: '저장', primary: true,
     onClick: () => {
       if (!fLabel.value.trim()) { toast('항목 이름을 입력하세요'); return false; }
-      const people = Math.max(1, Number(meta.people) || 1);
-      const raw = Number(fAmt.value || 0);
       store.put('costs', {
         id: rec.id,
         label: fLabel.value.trim(),
-        amount: fPer.checked ? raw * people : raw,
+        // 입력값을 그대로 저장한다. 인원 곱하기는 표시할 때만(store.toKRW).
+        amount: Number(fAmt.value || 0),
         spent: fSpent.value === '' ? null : Number(fSpent.value),
         cur: fCur.value,
         cat: fCat.value,
         perPerson: fPer.checked,
+        ppRaw: true,
       });
       toast('저장했습니다');
     },
@@ -165,7 +175,7 @@ function openCostEditor(existing) {
       h('div.row2', field('예상 금액', fAmt), field('통화', fCur)),
       field('실제 지출', fSpent, '실제로 결제한 금액'),
       field('분류', fCat),
-      h('label.check-inline', fPer, h('span', `1인 기준 금액으로 입력 (× ${Math.max(1, Number(meta.people) || 1)}명)`)),
+      h('label.check-inline', fPer, h('span', `1인 기준 금액으로 입력 (× ${people}명으로 합산)`)),
     ),
     actions,
   });

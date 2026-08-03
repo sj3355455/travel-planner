@@ -22,6 +22,7 @@ export function renderPlan(root) {
 
   if (!days.length) {
     root.append(empty('여행 날짜를 먼저 정해주세요', '오른쪽 위 ⚙ 설정에서 시작일과 종료일을 입력하면 일차가 생깁니다.'));
+    root.append(orphanSection(items, days));
     return;
   }
 
@@ -54,7 +55,39 @@ export function renderPlan(root) {
     root.append(wrap);
   }
 
+  root.append(orphanSection(items, days));
   root.append(h('button.fab', { onclick: () => openItemEditor(null, { day: selectedDay }) }, '+'));
+}
+
+/**
+ * 여행 기간을 줄이면 마지막 일차보다 뒤에 있던 일정이 어느 화면에도 안 나온다.
+ * (예산에는 계속 잡히는데 열어볼 방법이 없어 유령 일정이 된다.)
+ * 그런 일정을 모아 보여주고 마지막 날로 옮길 수 있게 한다.
+ */
+function orphanSection(items, days) {
+  const orphans = items.filter(i => (i.day || 0) >= days.length);
+  if (!orphans.length) return null;
+
+  const lastDay = days.length - 1;
+  return h('div.section.orphan',
+    h('div.section-title',
+      h('span', `⚠️ 여행 기간 밖 일정 ${orphans.length}개`),
+      // 날짜가 아예 없으면(일차 0개) 옮길 곳이 없다
+      days.length ? h('button.linkbtn', {
+        onclick: () => {
+          store.update(d => {
+            for (const o of orphans) d.items[o.id] = { ...d.items[o.id], day: lastDay, mt: Date.now() };
+          });
+          toast(`${orphans.length}개를 마지막 날로 옮겼습니다`);
+        },
+      }, `마지막 날(${days[lastDay].label})로 옮기기`) : null,
+    ),
+    h('p.muted.small', '여행 날짜를 줄이면서 범위를 벗어난 일정입니다. 비용에는 계속 포함됩니다.'),
+    ...orphans.map(o => h('div.line-row', { onclick: () => openItemEditor(o) },
+      h('span.cat-dot', { style: { background: catOf(o.cat).color + '26', color: catOf(o.cat).color } }, catOf(o.cat).icon),
+      h('div.grow', h('div', o.title), h('div.muted.small', `${(o.day || 0) + 1}일차로 지정됨`)),
+    )),
+  );
 }
 
 function sortByTime(a, b) {
