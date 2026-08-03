@@ -99,7 +99,7 @@ export function tripToMarkdown() {
 
   if (meta.memo) L.push('---', '', '## 📌 메모', '', meta.memo, '');
 
-  L.push('---', '', `_여행 플래너에서 내보냄 · ${new Date().toLocaleString('ko-KR')}_`);
+  L.push('---', '', `_트래블 플래너에서 내보냄 · ${new Date().toLocaleString('ko-KR')}_`);
   return L.join('\n');
 }
 

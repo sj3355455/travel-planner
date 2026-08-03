@@ -1,4 +1,4 @@
-# 여행 플래너
+# 트래블 플래너
 
 일정 · 시간표 · 지도 · 예산 · 준비물을 한 곳에서 관리하는 여행 계획 PWA.
 컴퓨터와 폰에서 같이 쓰고, 공유 코드 하나로 일행과 함께 편집한다.
@@ -152,7 +152,7 @@ Supabase 자체는 지원하지만 문자를 보내려면 Twilio 같은 **유료
 당동 앱과 같은 방식이다.
 
 ```bash
-git init && git add -A && git commit -m "여행 플래너 초안"
+git init && git add -A && git commit -m "트래블 플래너 초안"
 ```
 
 리포를 만들어 push하고 Settings → Pages 에서 source를 `main`/`root` 로 두면 끝.

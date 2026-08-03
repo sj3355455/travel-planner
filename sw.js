@@ -1,4 +1,4 @@
-/* 여행 플래너 서비스 워커 — 오프라인 캐시 + 무중단 자동 업데이트
+/* 트래블 플래너 서비스 워커 — 오프라인 캐시 + 무중단 자동 업데이트
  *
  * ▶ 새 패치를 낼 때는 아래 VERSION 한 줄만 올리면 된다(예: v1 → v2).
  *   파일 내용이 바뀌면 브라우저가 새 워커로 감지 → 설치 → 활성화 → 제어권 교체 순으로 진행되고,
@@ -9,7 +9,7 @@
  *  - 그 외 정적 자산: 캐시 우선 + 백그라운드 갱신
  *  - 외부 출처(Supabase / 지도 타일 / Nominatim): 가로채지 않음
  */
-const VERSION = 'v8';
+const VERSION = 'v9';
 const BASE = new URL('.', self.location).pathname;
 const CACHE = 'travel' + BASE + VERSION;
 

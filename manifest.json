@@ -1,7 +1,7 @@
 {
   "id": "/travel-planner/",
-  "name": "여행 플래너",
-  "short_name": "여행플래너",
+  "name": "트래블 플래너",
+  "short_name": "트래블플래너",
   "description": "일정·시간표·준비물·예산·지도를 한 곳에서 관리하는 여행 계획 앱",
   "lang": "ko",
   "dir": "ltr",

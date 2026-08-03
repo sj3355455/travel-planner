@@ -137,7 +137,7 @@ export function renderGate() {
 
   const gate = h('div.gate',
     h('img.gate-icon', { src: 'icon-192.png', alt: '', width: 96, height: 96 }),
-    h('h1.gate-title', '여행 플래너'),
+    h('h1.gate-title', '트래블 플래너'),
     h('p.gate-sub', { html: '휴대폰에서는 <b>앱으로 설치해서</b> 사용해 주세요.<br>설치는 몇 초면 끝납니다.' }),
 
     h('ul.gate-feats',
