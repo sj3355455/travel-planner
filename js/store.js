@@ -335,6 +335,15 @@ class Store extends EventTarget {
 export const store = new Store();
 export const lastTripCode = () => localStorage.getItem(LS_LAST);
 
+/**
+ * 다음에 앱을 열 때 자동으로 열릴 여행을 지정한다.
+ * 설치 게이트에서 쓴다 — 설치 과정에서 URL 의 #trip=코드 가 사라지기 때문에,
+ * 미리 저장해 두어야 설치 후 첫 실행에서 공유받은 여행이 열린다.
+ */
+export const setLastTripCode = code => {
+  try { localStorage.setItem(LS_LAST, code); } catch { }
+};
+
 // ── 날짜 유틸 ──────────────────────────────────────────────
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
 
