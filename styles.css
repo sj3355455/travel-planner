@@ -47,6 +47,8 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* .icon-btn 이 display:grid 라서 hidden 속성만으로는 안 숨는다 */
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0; height: 100%;
@@ -346,6 +348,11 @@ textarea.inp { resize: vertical; font-family: inherit; }
   font-size: 26px; font-weight: 700; letter-spacing: 3px; text-align: center;
   background: var(--surface-2); border-radius: 12px; padding: 16px; margin-bottom: 4px;
 }
+
+/* 설치 안내 단계 */
+.help-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
+.help-steps li { line-height: 1.55; }
+.help-steps b { color: var(--accent); }
 
 /* 검색 결과 */
 .search-hit {

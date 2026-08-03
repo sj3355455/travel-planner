@@ -74,6 +74,72 @@ $('#btnTheme').addEventListener('click', () => {
 });
 applyTheme(document.documentElement.dataset.theme || 'light');
 
+// ── 앱 설치 (PWA) ─────────────────────────────────────────
+// 크롬/엣지 계열은 beforeinstallprompt 를 잡아 우리 버튼으로 설치를 띄운다.
+// iOS 사파리는 그 이벤트가 없어서 "공유 → 홈 화면에 추가" 안내만 보여준다.
+let installPrompt = null;
+
+const isStandalone = () =>
+  matchMedia('(display-mode: standalone)').matches ||
+  matchMedia('(display-mode: fullscreen)').matches ||
+  navigator.standalone === true;
+
+const ua = navigator.userAgent;
+const isIOS = () => /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+const isFirefox = () => /Firefox/i.test(ua);
+
+function updateInstallBtn() {
+  // 이미 설치해서 앱으로 실행 중이면 버튼을 숨긴다
+  $('#btnInstall').hidden = isStandalone() || !(installPrompt || isIOS() || isFirefox());
+}
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();          // 브라우저 기본 배너 대신 우리 버튼을 쓴다
+  installPrompt = e;
+  updateInstallBtn();
+});
+
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  updateInstallBtn();
+  toast('앱으로 설치했습니다 🎉');
+});
+
+$('#btnInstall').addEventListener('click', async () => {
+  if (installPrompt) {
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    installPrompt = null;
+    updateInstallBtn();
+    if (outcome !== 'accepted') toast('설치를 취소했습니다');
+    return;
+  }
+  showInstallHelp();
+});
+
+/** 프로그램적으로 설치를 띄울 수 없는 브라우저용 수동 안내 */
+function showInstallHelp() {
+  const steps = isIOS()
+    ? ['사파리 아래쪽 <b>공유 버튼</b>(↑ 네모)을 누릅니다.',
+       '메뉴를 내려서 <b>“홈 화면에 추가”</b>를 누릅니다.',
+       '오른쪽 위 <b>“추가”</b>를 누르면 끝입니다.']
+    : isFirefox()
+      ? ['주소창 오른쪽 <b>⋮ 메뉴</b>를 엽니다.',
+         '<b>“설치”</b> 또는 <b>“홈 화면에 추가”</b>를 누릅니다.']
+      : ['주소창 오른쪽의 <b>설치 아이콘</b>(⊕ 또는 모니터 모양)을 누릅니다.',
+         '없다면 <b>⋮ 메뉴 → 앱 → 이 사이트 설치</b>를 누릅니다.'];
+
+  modal({
+    title: '앱으로 설치하기',
+    body: h('div.form',
+      h('p.muted.small', '설치하면 주소창 없이 앱처럼 실행되고, 홈 화면·시작 메뉴에서 바로 열 수 있습니다. 오프라인에서도 열립니다.'),
+      h('ol.help-steps', ...steps.map(s => h('li', { html: s }))),
+      isIOS() ? h('p.muted.small', '※ iOS 는 <b>사파리</b>에서만 설치할 수 있습니다. 크롬으로 보고 있다면 사파리로 이 주소를 열어주세요.') : null,
+    ),
+    actions: [{ label: '닫기', primary: true }],
+  });
+}
+
 // ── 전역 검색 ─────────────────────────────────────────────
 $('#btnSearch').addEventListener('click', openSearch);
 
@@ -358,7 +424,7 @@ $('#btnSettings').addEventListener('click', () => {
         h('button.btn.danger.small', {
           onclick: async () => {
             if (await confirmDialog('여행 비우기', '이 여행의 일정·준비물·비용을 모두 지울까요? 되돌릴 수 없습니다.', '전부 지우기')) {
-              store.update(d => { d.items = {}; d.checks = {}; d.costs = {}; });
+              store.update(d => { d.items = {}; d.checks = {}; d.costs = {}; d.notes = {}; });
               toast('비웠습니다');
             }
           },
@@ -389,22 +455,35 @@ $('#btnSettings').addEventListener('click', () => {
 
 // ── 시작 ──────────────────────────────────────────────────
 async function boot() {
+  updateInstallBtn();
+
   const hash = new URLSearchParams(location.hash.slice(1));
   const fromLink = hash.get('trip');
+  // manifest 의 앱 바로가기(#tab=checklist 등)로 실행된 경우
+  const wantTab = hash.get('tab');
   const code = fromLink || lastTripCode();
 
   if (code) {
     const ok = await openTrip(code);
-    if (ok) return;
+    if (ok) {
+      if (wantTab && VIEWS[wantTab]) { tab = wantTab; render(); }
+      return;
+    }
   }
+  if (wantTab && VIEWS[wantTab]) tab = wantTab;
   render();
   if (!listTrips().length) openNewTrip();
   else openTripList();
 }
 
+// 해시만 바뀌면 페이지가 다시 로드되지 않으므로(=boot 이 안 돎) 여기서 직접 처리한다.
+// 앱 바로가기(#tab=budget)를 이미 열려 있는 창이 받아내는 경우가 여기에 해당.
 window.addEventListener('hashchange', () => {
-  const code = new URLSearchParams(location.hash.slice(1)).get('trip');
-  if (code && code !== store.code) openTrip(code);
+  const p = new URLSearchParams(location.hash.slice(1));
+  const code = p.get('trip');
+  if (code && code !== store.code) { openTrip(code); return; }
+  const wantTab = p.get('tab');
+  if (wantTab && VIEWS[wantTab] && wantTab !== tab) { tab = wantTab; render(); }
 });
 window.addEventListener('pagehide', () => store.flush());
 

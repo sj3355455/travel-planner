@@ -10,7 +10,8 @@
   try { document.documentElement.dataset.theme = localStorage.getItem('tp.theme') || 'light'; } catch (e) { }
 </script>
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -28,6 +29,7 @@
   </div>
   <div class="topbar-right">
     <span id="syncDot" class="sync-dot" title="동기화 상태"></span>
+    <button class="icon-btn" id="btnInstall" title="앱으로 설치" hidden>📲</button>
     <button class="icon-btn" id="btnSearch" title="검색">🔍</button>
     <button class="icon-btn" id="btnTheme" title="라이트/다크 전환">🌙</button>
     <button class="icon-btn" id="btnShare" title="공유">↗</button>

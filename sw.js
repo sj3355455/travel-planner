@@ -9,7 +9,7 @@
  *  - 그 외 정적 자산: 캐시 우선 + 백그라운드 갱신
  *  - 외부 출처(Supabase / 지도 타일 / Nominatim): 가로채지 않음
  */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const BASE = new URL('.', self.location).pathname;
 const CACHE = 'travel' + BASE + VERSION;
 
@@ -18,6 +18,7 @@ const ASSETS = [
   'js/app.js', 'js/store.js', 'js/ui.js', 'js/supabase.js', 'js/config.js', 'js/geo.js', 'js/itemEditor.js',
   'js/exportMd.js',
   'js/views/plan.js', 'js/views/timetable.js', 'js/views/map.js', 'js/views/budget.js', 'js/views/checklist.js',
+  'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png',
 ].map(p => BASE + p);
 
 self.addEventListener('install', e => {
