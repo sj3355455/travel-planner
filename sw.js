@@ -9,7 +9,7 @@
  *  - 그 외 정적 자산: 캐시 우선 + 백그라운드 갱신
  *  - 외부 출처(Supabase / 지도 타일 / Nominatim): 가로채지 않음
  */
-const VERSION = 'v7';
+const VERSION = 'v8';
 const BASE = new URL('.', self.location).pathname;
 const CACHE = 'travel' + BASE + VERSION;
 

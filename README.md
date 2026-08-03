@@ -84,6 +84,55 @@ cd "C:\Users\1seoj\Documents\travel-planner" && python -m http.server 8080
 delete from public.trips where code = 'ABCD-2345';
 ```
 
+## 로그인 설정
+
+로그인은 **선택 기능**이다. 로그인하면 여행 목록이 계정에 붙어 기기가 바뀌어도 그대로 보인다. 로그인하지 않아도 공유 코드로 여행을 열고 편집하는 건 그대로 된다.
+
+먼저 [`schema-auth.sql`](schema-auth.sql)을 SQL Editor에서 Run 해서 `user_trips` 테이블을 만든다. 그다음 쓰고 싶은 방식만 켜면 된다.
+
+### 공통 — 돌아올 주소 등록 (소셜 로그인에 필수)
+
+**Authentication → URL Configuration**
+
+- **Site URL**: `https://sj3355455.github.io/travel-planner/`
+- **Redirect URLs**에 추가: `https://sj3355455.github.io/travel-planner/**`
+- 로컬 테스트도 하려면: `http://127.0.0.1:8123/**`
+
+여기 등록되지 않은 주소로는 로그인 후 돌아오지 못한다.
+
+### 이메일
+
+**Authentication → Sign In / Providers → Email**
+
+| 설정 | 선택지 |
+|---|---|
+| **Confirm email 끄기** | 가입 즉시 로그인된다. 인증 메일이 없으니 **비밀번호 재설정은 안 된다.** |
+| **Confirm email 켜기** | 제대로 된 인증·비밀번호 재설정. 단 **SMTP를 따로 붙여야 한다.** |
+
+Supabase 기본 메일 발송은 시간당 2~3통 제한이라 실사용이 안 된다. 인증 메일을 쓰려면 **Project Settings → Authentication → SMTP Settings**에 [Resend](https://resend.com)(무료 월 3,000통) 같은 걸 연결해야 한다.
+
+> 처음엔 Confirm email을 꺼두고 쓰다가, 필요해지면 SMTP를 붙이는 걸 권한다.
+
+### 카카오 (추천)
+
+1. [Kakao Developers](https://developers.kakao.com) → 애플리케이션 추가 (무료)
+2. **앱 키**에서 `REST API 키` 복사
+3. **카카오 로그인** 활성화 → **Redirect URI**에 등록:
+   `https://cxchfovxtrkveaihumbx.supabase.co/auth/v1/callback`
+4. **동의 항목**에서 닉네임(profile_nickname)을 필수 또는 선택으로 설정
+5. **보안**에서 `Client Secret` 생성 후 코드 복사 (상태: 사용함)
+6. Supabase → **Authentication → Sign In / Providers → Kakao** 활성화 후 REST API 키와 Client Secret 입력
+
+### 구글
+
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → OAuth 클라이언트 ID 생성 (웹 애플리케이션)
+2. **승인된 리디렉션 URI**: `https://cxchfovxtrkveaihumbx.supabase.co/auth/v1/callback`
+3. Supabase → **Authentication → Sign In / Providers → Google** 에 클라이언트 ID·시크릿 입력
+
+### 휴대폰 번호는 왜 없나
+
+Supabase 자체는 지원하지만 문자를 보내려면 Twilio 같은 **유료 SMS 업체**가 필요하다(건당 과금). 한국은 발신번호 사전등록 규제도 걸려서 개인 앱에는 맞지 않아 넣지 않았다.
+
 ### 동기화 방식
 
 - 여행마다 `ABCD-2345` 형태의 **공유 코드**가 생긴다. 코드나 링크(`#trip=코드`)를 받은 사람은 같은 여행을 함께 편집한다.

@@ -5,7 +5,9 @@ import {
   syncTripList, clearLocalTripList,
 } from './store.js';
 import {
-  isLoggedIn, currentUser, signIn, signUp, signOut, refreshSession, onAuthChange, ID_RULE, ID_HINT,
+  isLoggedIn, currentUser, displayName, signInEmail, signUpEmail, sendPasswordReset,
+  signOut, refreshSession, startOAuth, consumeOAuthRedirect, loadProfile,
+  PROVIDERS, EMAIL_RULE,
 } from './auth.js';
 import { remoteEnabled } from './supabase.js';
 import { tripToMarkdown } from './exportMd.js';
@@ -235,10 +237,11 @@ function accountBar(reopen) {
   }
 
   const me = currentUser();
+  const via = { kakao: '카카오', google: 'Google', email: '이메일' }[me.provider] || '';
   return h('div.account-bar',
     h('div.grow',
-      h('strong', `${me.loginId} 님`),
-      h('div.muted.small', '여행 목록이 계정에 저장됩니다'),
+      h('strong', `${displayName()} 님`),
+      h('div.muted.small', `${via ? via + ' 로그인 · ' : ''}여행 목록이 계정에 저장됩니다`),
     ),
     h('button.btn.small', {
       onclick: async () => {
@@ -253,16 +256,18 @@ function accountBar(reopen) {
   );
 }
 
-/** 로그인 / 가입 모달 (탭 전환형) */
+/** 로그인 / 가입 모달 — 소셜 우선, 이메일은 아래에 */
 function openAuth(onDone) {
   let mode = 'in';   // 'in' | 'up'
 
-  const fId = input({ placeholder: '아이디', autocapitalize: 'none', autocorrect: 'off', spellcheck: false });
+  const fEmail = input({ type: 'email', placeholder: 'you@example.com', autocapitalize: 'none', autocorrect: 'off', spellcheck: false, autocomplete: 'email' });
   const fPw = input({ type: 'password', placeholder: '비밀번호', autocomplete: 'current-password' });
   const fPw2 = input({ type: 'password', placeholder: '비밀번호 확인', autocomplete: 'new-password' });
   const pw2Field = field('비밀번호 확인', fPw2);
   const hint = h('p.muted.small');
   const tabs = h('div.auth-tabs');
+
+  const okBtn = h('button.btn.primary', { onclick: () => submit() }, '로그인');
 
   const paint = () => {
     tabs.innerHTML = '';
@@ -273,35 +278,56 @@ function openAuth(onDone) {
       }, label));
     }
     pw2Field.hidden = mode === 'in';
-    hint.textContent = mode === 'up'
-      ? `아이디는 ${ID_HINT}, 비밀번호는 6자 이상.`
-      : '가입한 아이디와 비밀번호를 입력하세요.';
+    resetLink.hidden = mode === 'up';
+    hint.textContent = mode === 'up' ? '비밀번호는 6자 이상.' : '';
+    okBtn.disabled = false;
     okBtn.textContent = mode === 'in' ? '로그인' : '가입하고 시작';
   };
 
-  const okBtn = h('button.btn.primary', { onclick: () => submit() }, '로그인');
+  const resetLink = h('button.linkbtn', {
+    onclick: async () => {
+      const email = fEmail.value.trim();
+      if (!EMAIL_RULE.test(email)) { toast('먼저 이메일을 입력하세요'); return; }
+      try {
+        await sendPasswordReset(email);
+        toast('재설정 메일을 보냈습니다 (도착까지 몇 분 걸릴 수 있어요)');
+      } catch (e) { toast(e.message); }
+    },
+  }, '비밀번호를 잊으셨나요?');
 
   const submit = async () => {
-    const id = fId.value.trim();
+    const email = fEmail.value.trim();
     const pw = fPw.value;
-
-    if (!ID_RULE.test(id)) { toast(`아이디는 ${ID_HINT}`); return; }
+    if (!EMAIL_RULE.test(email)) { toast('이메일 형식을 확인해 주세요'); return; }
     if (pw.length < 6) { toast('비밀번호는 6자 이상이어야 합니다'); return; }
     if (mode === 'up' && pw !== fPw2.value) { toast('비밀번호가 서로 다릅니다'); return; }
 
     okBtn.disabled = true;
     okBtn.textContent = mode === 'in' ? '로그인 중…' : '가입 중…';
     try {
-      if (mode === 'in') await signIn(id, pw);
-      else await signUp(id, pw);
-
-      toast(`${id} 님으로 로그인했습니다`);
+      if (mode === 'in') {
+        await signInEmail(email, pw);
+      } else {
+        const r = await signUpEmail(email, pw);
+        if (r.needsConfirm) {
+          m.close();
+          modal({
+            title: '메일을 확인해 주세요',
+            body: h('div.form',
+              h('p', `${r.email} 으로 인증 메일을 보냈습니다.`),
+              h('p.muted.small', '메일의 링크를 누르면 가입이 끝납니다. 그다음 이 화면에서 로그인해 주세요.'),
+            ),
+            actions: [{ label: '확인', primary: true }],
+          });
+          return;
+        }
+      }
+      toast(`${displayName()} 님, 반가워요`);
       m.close();
-      await syncTripList();     // 다른 기기에서 만든 여행을 이 기기로 가져온다
+      await syncTripList();
       onDone && onDone();
     } catch (e) {
       toast(e.message);
-      okBtn.disabled = false;
       paint();
     }
   };
@@ -309,25 +335,31 @@ function openAuth(onDone) {
   fPw.addEventListener('keydown', e => { if (e.key === 'Enter' && mode === 'in') submit(); });
   fPw2.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
 
+  const social = h('div.social-list', ...PROVIDERS.map(p => h('button.social-btn', {
+    style: { background: p.bg, color: p.fg, borderColor: p.border ? 'var(--line-strong)' : p.bg },
+    onclick: () => startOAuth(p.id),
+  }, h('span.social-icon', p.icon), p.label)));
+
   const m = modal({
-    title: '계정',
+    title: '로그인',
     body: h('div.form',
+      social,
+      h('div.or', h('span', '또는 이메일로')),
       tabs,
-      field('아이디', fId),
+      field('이메일', fEmail),
       field('비밀번호', fPw),
       pw2Field,
       hint,
-      h('p.muted.small', '※ 이메일이 아니라 아이디로 가입합니다. 비밀번호를 잊으면 복구할 수 없으니 잘 기억해 주세요.'),
+      resetLink,
     ),
     actions: [{ label: '취소' }, { label: '로그인', primary: true, onClick: () => { submit(); return false; } }],
   });
 
-  // modal 이 만든 기본 버튼 대신 우리 버튼을 쓰려고 교체
-  const foot = m.el.querySelector('.modal-foot');
-  foot.lastChild.replaceWith(okBtn);
+  // modal 이 만든 기본 확인 버튼을 상태 표시가 되는 우리 버튼으로 교체
+  m.el.querySelector('.modal-foot').lastChild.replaceWith(okBtn);
 
   paint();
-  setTimeout(() => fId.focus(), 100);
+  setTimeout(() => fEmail.focus(), 100);
 }
 
 function openNewTrip() {
@@ -563,9 +595,16 @@ async function boot() {
  * 로그인 상태라면 토큰을 한 번 갱신하고 목록을 서버와 맞춘다.
  * 앱을 며칠 만에 열어도 만료된 토큰 때문에 목록이 빈 채로 보이지 않게 하려는 것.
  */
-async function bootAccount() {
+async function bootAccount(justLoggedIn) {
   if (!isLoggedIn() || !remoteEnabled()) return;
-  await refreshSession();
+
+  if (justLoggedIn) {
+    // 소셜 로그인 직후엔 토큰만 있고 프로필이 비어 있다
+    await loadProfile();
+    toast(`${displayName()} 님, 반가워요`);
+  } else {
+    await refreshSession();
+  }
   if (isLoggedIn()) await syncTripList();
 }
 
@@ -580,8 +619,17 @@ window.addEventListener('hashchange', () => {
 });
 window.addEventListener('pagehide', () => store.flush());
 
+// 소셜 로그인에서 돌아온 경우 토큰을 먼저 흡수한다.
+// boot() 가 해시에서 #trip= 을 읽기 전에 처리해야 주소가 꼬이지 않는다.
+let cameFromOAuth = false;
+try {
+  cameFromOAuth = consumeOAuthRedirect() === 'ok';
+} catch (e) {
+  setTimeout(() => toast('로그인 실패: ' + e.message), 500);
+}
+
 // 계정 동기화는 앱 표시를 막지 않도록 백그라운드로 돌린다
-bootAccount().catch(e => console.warn('[account] 초기화 실패', e));
+bootAccount(cameFromOAuth).catch(e => console.warn('[account] 초기화 실패', e));
 boot();
 
 // ── 서비스 워커 (PWA) ─────────────────────────────────────

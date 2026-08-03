@@ -427,6 +427,19 @@ body.gated { overflow: auto; }
 }
 .auth-tab.on { background: var(--surface); color: var(--fg); font-weight: 600; box-shadow: var(--shadow-sm); }
 
+.social-list { display: flex; flex-direction: column; gap: 8px; }
+.social-btn {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  width: 100%; padding: 13px; border-radius: 11px; border: 1px solid transparent;
+  font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow-sm);
+}
+.social-btn:hover { filter: brightness(.96); }
+.social-icon { font-size: 16px; font-weight: 800; }
+
+/* "또는 이메일로" 구분선 */
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12.5px; }
+.or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
+
 /* 설치 안내 단계 */
 .help-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
 .help-steps li { line-height: 1.55; }
