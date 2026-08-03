@@ -1,0 +1,12 @@
+.DS_Store
+Thumbs.db
+node_modules/
+.claude/
+
+# 비밀키 메모용 파일은 절대 커밋하지 않는다.
+# (js/config.js 의 publishable 키는 브라우저 노출이 정상이라 커밋해도 되지만,
+#  Supabase secret key 는 서버 전용이라 공개 리포에 올라가면 안 된다)
+API key.txt
+*secret*
+.env
+.env.*

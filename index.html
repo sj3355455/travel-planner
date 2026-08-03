@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>여행 플래너</title>
+<meta name="theme-color" content="#0e1114">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ── 상단 바 ───────────────────────────────────────────── -->
+<header class="topbar">
+  <button class="icon-btn" id="btnTrips" title="여행 목록">☰</button>
+  <div class="topbar-title">
+    <strong id="tripTitle">여행</strong>
+    <span id="tripDates" class="sub"></span>
+  </div>
+  <div class="topbar-right">
+    <span id="syncDot" class="sync-dot" title="동기화 상태"></span>
+    <button class="icon-btn" id="btnShare" title="공유">↗</button>
+    <button class="icon-btn" id="btnSettings" title="여행 설정">⚙</button>
+  </div>
+</header>
+
+<!-- ── 본문 ─────────────────────────────────────────────── -->
+<main id="view"></main>
+
+<!-- ── 하단 탭 ───────────────────────────────────────────── -->
+<nav class="tabbar">
+  <button data-tab="plan"      class="tab"><span>🗓</span>일정</button>
+  <button data-tab="timetable" class="tab"><span>📊</span>시간표</button>
+  <button data-tab="map"       class="tab"><span>🗺</span>지도</button>
+  <button data-tab="budget"    class="tab"><span>💰</span>예산</button>
+  <button data-tab="checklist" class="tab"><span>✅</span>준비물</button>
+</nav>
+
+<!-- ── 모달 컨테이너 ─────────────────────────────────────── -->
+<div id="modalRoot"></div>
+<div id="toast" class="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
