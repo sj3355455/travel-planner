@@ -1,13 +1,16 @@
 // 시간표 탭 — 일차를 열, 시각을 행으로 놓은 학교 시간표 형태
 import { h } from '../ui.js';
-import { store, tripDays, catOf, dayColor } from '../store.js';
+import { store, tripDays, catOf, dayColor, toMin } from '../store.js';
 import { openItemEditor } from '../itemEditor.js';
 
 const HOUR_PX = 56;      // 1시간 높이
 const MIN_SPAN = 30;     // 종료시각 없는 일정의 기본 길이(분)
 
-const toMin = t => { const [h_, m] = (t || '').split(':').map(Number); return h_ * 60 + (m || 0); };
 const pad = n => String(n).padStart(2, '0');
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 export function renderTimetable(root) {
   const days = tripDays(store.doc.meta);
@@ -20,23 +23,29 @@ export function renderTimetable(root) {
 
   const timed = items.filter(i => i.start);
   const untimed = items.filter(i => !i.start);
+  const today = todayISO();
 
   // 표시 범위: 일정이 걸친 시간대 ±여유. 일정이 없으면 08–22시.
   let lo = 8 * 60, hi = 22 * 60;
   if (timed.length) {
     lo = Math.min(...timed.map(i => toMin(i.start)));
-    hi = Math.max(...timed.map(i => Math.max(toMin(i.end || i.start) , toMin(i.start) + MIN_SPAN)));
+    hi = Math.max(...timed.map(i => Math.max(toMin(i.end || i.start), toMin(i.start) + MIN_SPAN)));
     lo = Math.floor(lo / 60) * 60;
     hi = Math.ceil(hi / 60) * 60;
     if (hi - lo < 240) hi = lo + 240;
   }
   const hours = (hi - lo) / 60;
   const gridH = hours * HOUR_PX;
+  const yOf = min => (min - lo) / 60 * HOUR_PX;
+
+  root.append(h('div.tt-toolbar',
+    h('button.btn.small', { onclick: () => window.print() }, '🖨 인쇄 · PDF'),
+  ));
 
   // ── 시간 눈금 ───────────────────────────────────────────
   const gutter = h('div.tt-gutter', { style: { height: gridH + 'px' } });
   for (let m = lo; m <= hi; m += 60) {
-    gutter.append(h('span.tt-hour', { style: { top: ((m - lo) / 60 * HOUR_PX) + 'px' } }, `${pad(Math.floor(m / 60) % 24)}:00`));
+    gutter.append(h('span.tt-hour', { style: { top: yOf(m) + 'px' } }, `${pad(Math.floor(m / 60) % 24)}:00`));
   }
 
   // ── 일차 열 ─────────────────────────────────────────────
@@ -44,14 +53,23 @@ export function renderTimetable(root) {
   const head = h('div.tt-head');
   head.append(h('div.tt-head-cell.gutter-cell', ''));
 
-  days.forEach(d => {
-    head.append(h('div.tt-head-cell',
-      h('strong', { style: { color: dayColor(d.index) } }, d.label),
-      h('span.muted.small', d.sub)));
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
 
-    const col = h('div.tt-col', { style: { height: gridH + 'px' } });
+  days.forEach(d => {
+    const isToday = d.date === today;
+    head.append(h('div', { class: 'tt-head-cell' + (isToday ? ' today' : '') },
+      h('strong', { style: { color: dayColor(d.index) } }, d.label),
+      h('span.muted.small', d.sub + (isToday ? ' · 오늘' : '')),
+    ));
+
+    const col = h('div', { class: 'tt-col' + (isToday ? ' today' : ''), style: { height: gridH + 'px' } });
     for (let m = lo + 60; m < hi; m += 60) {
-      col.append(h('div.tt-line', { style: { top: ((m - lo) / 60 * HOUR_PX) + 'px' } }));
+      col.append(h('div.tt-line', { style: { top: yOf(m) + 'px' } }));
+    }
+
+    // 오늘이고 현재 시각이 표시 범위 안이면 빨간 현재 시각선
+    if (isToday && nowMin >= lo && nowMin <= hi) {
+      col.append(h('div.tt-now', { style: { top: yOf(nowMin) + 'px' }, title: '지금' }));
     }
 
     const dayItems = timed.filter(i => (i.day || 0) === d.index)
@@ -64,8 +82,8 @@ export function renderTimetable(root) {
       const w = 100 / lanes;
       col.append(h('button.tt-block', {
         style: {
-          top: ((s - lo) / 60 * HOUR_PX) + 'px',
-          height: ((e - s) / 60 * HOUR_PX - 3) + 'px',
+          top: yOf(s) + 'px',
+          height: (yOf(e) - yOf(s) - 3) + 'px',
           left: `calc(${lane * w}% + 2px)`,
           width: `calc(${w}% - 4px)`,
           background: c.color + '22',
@@ -81,10 +99,7 @@ export function renderTimetable(root) {
     cols.append(col);
   });
 
-  root.append(h('div.tt-wrap',
-    head,
-    h('div.tt-body', gutter, cols),
-  ));
+  root.append(h('div.tt-wrap', head, h('div.tt-body', gutter, cols)));
 
   if (untimed.length) {
     const box = h('div.tt-untimed', h('div.section-title', '시간 미정'));

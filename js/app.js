@@ -1,7 +1,9 @@
 // 앱 셸 — 탭 전환, 여행 열기/만들기/공유, 설정, 동기화 표시
 import { h, $, modal, toast, input, field, confirmDialog } from './ui.js';
-import { store, listTrips, forgetTrip, lastTripCode, fmtDate, tripDays, mergeDoc } from './store.js';
+import { store, listTrips, forgetTrip, lastTripCode, fmtDate, tripDays, mergeDoc, catOf } from './store.js';
 import { remoteEnabled } from './supabase.js';
+import { tripToMarkdown } from './exportMd.js';
+import { openItemEditor } from './itemEditor.js';
 import { renderPlan } from './views/plan.js';
 import { renderTimetable } from './views/timetable.js';
 import { renderMap, detachMap } from './views/map.js';
@@ -39,11 +41,11 @@ function render() {
 function renderSync() {
   const dot = $('#syncDot');
   const map = {
-    local: ['이 기기에만 저장됨 (Supabase 미설정)', '#6b737b'],
-    idle: ['동기화됨', '#5ad1a5'],
-    pushing: ['저장 중…', '#ffd75a'],
-    pulling: ['불러오는 중…', '#ffd75a'],
-    error: ['동기화 실패 — 로컬에는 저장됨', '#ff6b6b'],
+    local: ['이 기기에만 저장됨 (Supabase 미설정)', '#98a2b0'],
+    idle: ['동기화됨', '#12a37a'],
+    pushing: ['저장 중…', '#e0a800'],
+    pulling: ['불러오는 중…', '#e0a800'],
+    error: ['동기화 실패 — 로컬에는 저장됨', '#dc2f38'],
   };
   const [title, color] = map[store.sync] || map.idle;
   dot.style.background = color;
@@ -57,6 +59,96 @@ store.on('sync', renderSync);
 document.querySelectorAll('.tab').forEach(b => {
   b.addEventListener('click', () => { tab = b.dataset.tab; render(); });
 });
+
+// ── 테마 (라이트 기본 / 다크 토글) ────────────────────────
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('tp.theme', t); } catch { }
+  $('#btnTheme').textContent = t === 'dark' ? '☀️' : '🌙';
+  // 모바일 주소창 색까지 맞춰준다
+  const meta = $('#metaTheme');
+  if (meta) meta.content = t === 'dark' ? '#0e1114' : '#ffffff';
+}
+$('#btnTheme').addEventListener('click', () => {
+  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+});
+applyTheme(document.documentElement.dataset.theme || 'light');
+
+// ── 전역 검색 ─────────────────────────────────────────────
+$('#btnSearch').addEventListener('click', openSearch);
+
+function openSearch() {
+  const days = tripDays(store.doc.meta);
+  const q = input({ placeholder: '일정 · 장소 · 메모 · 준비물 · 비용 검색' });
+  const results = h('div');
+
+  const run = () => {
+    const kw = q.value.trim().toLowerCase();
+    results.innerHTML = '';
+    if (!kw) { results.append(h('p.muted.small', '검색어를 입력하세요.')); return; }
+
+    const hits = [];
+    const match = (...fields) => fields.some(f => String(f || '').toLowerCase().includes(kw));
+
+    for (const it of store.all('items')) {
+      if (match(it.title, it.placeName, it.memo)) {
+        const d = days[it.day || 0];
+        hits.push({
+          kind: '일정', icon: catOf(it.cat).icon, title: it.title,
+          sub: [d ? d.label : '', it.start, it.placeName].filter(Boolean).join(' · '),
+          go: () => openItemEditor(it),
+        });
+      }
+    }
+    for (const c of store.all('checks')) {
+      if (match(c.text, c.group)) {
+        hits.push({
+          kind: '준비물', icon: c.done ? '✅' : '⬜', title: c.text, sub: c.group || '',
+          go: () => { tab = 'checklist'; render(); },
+        });
+      }
+    }
+    for (const c of store.all('costs')) {
+      if (match(c.label)) {
+        hits.push({
+          kind: '비용', icon: catOf(c.cat).icon, title: c.label, sub: '일정 밖 비용',
+          go: () => { tab = 'budget'; render(); },
+        });
+      }
+    }
+    for (const n of store.all('notes')) {
+      if (match(n.text)) {
+        const d = days[n.day || 0];
+        hits.push({
+          kind: '메모', icon: '📝', title: n.text.slice(0, 40), sub: d ? d.label : '',
+          go: () => { tab = 'plan'; render(); },
+        });
+      }
+    }
+
+    if (!hits.length) { results.append(h('p.muted.small', `"${q.value.trim()}" 검색 결과가 없습니다.`)); return; }
+    results.append(h('p.muted.small', `${hits.length}건`));
+    for (const hit of hits.slice(0, 40)) {
+      results.append(h('button.search-hit', {
+        onclick: () => { m.close(); setTimeout(hit.go, 150); },
+      },
+        h('span', hit.icon),
+        h('div.grow', h('div', hit.title), hit.sub ? h('div.muted.small', hit.sub) : null),
+        h('span.kind', hit.kind),
+      ));
+    }
+  };
+
+  q.addEventListener('input', run);
+  run();
+
+  const m = modal({
+    title: '검색',
+    body: h('div.form', q, results),
+    actions: [{ label: '닫기' }],
+  });
+  setTimeout(() => q.focus(), 100);
+}
 
 // ── 여행 목록 ─────────────────────────────────────────────
 $('#btnTrips').addEventListener('click', openTripList);
@@ -182,18 +274,45 @@ $('#btnShare').addEventListener('click', () => {
       }, '공유하기') : null,
     ),
     h('hr'),
+    h('div.section-title', 'Obsidian 노트로 내보내기'),
     h('div.list-actions',
-      h('button.btn.small', { onclick: exportJson }, 'JSON 백업 내보내기'),
+      h('button.btn.small', { onclick: copyMarkdown }, '📋 마크다운 복사'),
+      h('button.btn.small', { onclick: downloadMarkdown }, '⬇ .md 파일'),
+    ),
+    h('hr'),
+    h('div.section-title', '백업'),
+    h('div.list-actions',
+      h('button.btn.small', { onclick: exportJson }, 'JSON 내보내기'),
       h('button.btn.small', { onclick: importJson }, 'JSON 불러오기'),
     ),
   );
   modal({ title: '여행 공유', body, actions: [{ label: '닫기' }] });
 });
 
-function exportJson() {
-  const blob = new Blob([JSON.stringify({ code: store.code, doc: store.doc }, null, 2)], { type: 'application/json' });
-  const a = h('a', { href: URL.createObjectURL(blob), download: `${store.doc.meta.title || 'trip'}.json` });
+/** Vault 에 그대로 붙여넣을 수 있는 마크다운 */
+function copyMarkdown() {
+  navigator.clipboard.writeText(tripToMarkdown())
+    .then(() => toast('마크다운을 복사했습니다 — Obsidian 에 붙여넣으세요'))
+    .catch(() => toast('복사 실패'));
+}
+
+function downloadMarkdown() {
+  const name = (store.doc.meta.title || 'trip').replace(/[\\/:*?"<>|]/g, '');
+  saveFile(tripToMarkdown(), `${name}.md`, 'text/markdown');
+  toast('.md 파일을 저장했습니다');
+}
+
+function saveFile(text, filename, type) {
+  const blob = new Blob([text], { type: type + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = h('a', { href: url, download: filename });
   document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportJson() {
+  const name = (store.doc.meta.title || 'trip').replace(/[\\/:*?"<>|]/g, '');
+  saveFile(JSON.stringify({ code: store.code, doc: store.doc }, null, 2), `${name}.json`, 'application/json');
 }
 
 function importJson() {

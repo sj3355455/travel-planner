@@ -9,13 +9,14 @@
  *  - 그 외 정적 자산: 캐시 우선 + 백그라운드 갱신
  *  - 외부 출처(Supabase / 지도 타일 / Nominatim): 가로채지 않음
  */
-const VERSION = 'v2';
+const VERSION = 'v3';
 const BASE = new URL('.', self.location).pathname;
 const CACHE = 'travel' + BASE + VERSION;
 
 const ASSETS = [
   '', 'index.html', 'styles.css', 'manifest.json',
   'js/app.js', 'js/store.js', 'js/ui.js', 'js/supabase.js', 'js/config.js', 'js/geo.js', 'js/itemEditor.js',
+  'js/exportMd.js',
   'js/views/plan.js', 'js/views/timetable.js', 'js/views/map.js', 'js/views/budget.js', 'js/views/checklist.js',
 ].map(p => BASE + p);
 

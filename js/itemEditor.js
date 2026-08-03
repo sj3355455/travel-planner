@@ -1,4 +1,4 @@
-// 일정 항목 추가/편집 시트 — 일정 탭·지도 탭 양쪽에서 쓴다.
+// 일정 항목 추가/편집 시트 — 일정 탭·지도 탭·검색 양쪽에서 쓴다.
 import { h, modal, input, select, field, toast, confirmDialog } from './ui.js';
 import { store, CATEGORIES, tripDays } from './store.js';
 import { searchPlace, debounce } from './geo.js';
@@ -18,6 +18,7 @@ export function openItemEditor(existing, defaults = {}) {
   const fEnd = input({ type: 'time', value: rec.end || '' });
   const fCat = select(CATEGORIES.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` })), rec.cat);
   const fCost = input({ type: 'number', inputmode: 'decimal', min: '0', value: rec.cost ?? '', placeholder: '0' });
+  const fSpent = input({ type: 'number', inputmode: 'decimal', min: '0', value: rec.spent ?? '', placeholder: '아직 안 씀' });
   const fCur = select(
     [{ value: 'krw', label: '원' }, ...(meta.curLabel ? [{ value: 'loc', label: meta.curLabel }] : [])],
     rec.cur || 'krw',
@@ -74,50 +75,68 @@ export function openItemEditor(existing, defaults = {}) {
     field('일정 이름', fTitle),
     h('div.row2', field('일차', fDay), field('분류', fCat)),
     h('div.row2', field('시작', fStart), field('종료', fEnd)),
-    field('장소', h('div', fPlace, results, placeInfo), null),
+    field('장소', h('div', fPlace, results, placeInfo)),
     h('div.row2',
       field('예상 금액', fCost),
       field('통화', fCur, meta.curLabel ? null : '설정에서 현지 통화를 넣으면 환산됩니다'),
     ),
+    field('실제 지출', fSpent, '여행 중에 실제로 쓴 금액. 예산 탭에서 예상과 비교됩니다'),
     field('메모', fMemo),
   );
 
+  /** 폼에서 현재 값을 읽어 저장용 레코드로 만든다 */
+  const collect = () => ({
+    day: Number(fDay.value),
+    start: fStart.value,
+    end: fEnd.value,
+    title: fTitle.value.trim() || place.name.trim(),
+    cat: fCat.value,
+    placeName: place.name.trim(),
+    addr: place.addr || '',
+    lat: place.lat, lng: place.lng,
+    cost: fCost.value === '' ? 0 : Number(fCost.value),
+    spent: fSpent.value === '' ? null : Number(fSpent.value),
+    cur: fCur.value,
+    memo: fMemo.value.trim(),
+  });
+
+  const validate = () => {
+    if (!collect().title) { toast('일정 이름을 입력하세요'); return false; }
+    if (fStart.value && fEnd.value && fEnd.value < fStart.value) { toast('종료 시각이 시작보다 빠릅니다'); return false; }
+    return true;
+  };
+
   const actions = [];
+
   if (!isNew) {
     actions.push({
       label: '삭제', danger: true,
       onClick: () => {
-        // 모달을 먼저 닫고 확인 창을 띄운다
         setTimeout(async () => {
           if (await confirmDialog('일정 삭제', `"${rec.title || '이름 없는 일정'}"을(를) 삭제할까요?`)) {
-            store.del('items', rec.id);
-            toast('삭제했습니다');
+            const undo = store.del('items', rec.id);
+            toast('삭제했습니다', { label: '실행취소', onClick: undo });
           }
         }, 200);
       },
     });
+    actions.push({
+      label: '복제',
+      onClick: () => {
+        if (!validate()) return false;
+        const copy = collect();
+        store.put('items', { ...copy, title: copy.title + ' (복사)' });
+        toast('복제했습니다');
+      },
+    });
   }
+
   actions.push({ label: '취소' });
   actions.push({
     label: '저장', primary: true,
     onClick: () => {
-      const title = fTitle.value.trim() || place.name.trim();
-      if (!title) { toast('일정 이름을 입력하세요'); return false; }
-      if (fStart.value && fEnd.value && fEnd.value < fStart.value) { toast('종료 시각이 시작보다 빠릅니다'); return false; }
-      store.put('items', {
-        id: rec.id,
-        day: Number(fDay.value),
-        start: fStart.value,
-        end: fEnd.value,
-        title,
-        cat: fCat.value,
-        placeName: place.name.trim(),
-        addr: place.addr || '',
-        lat: place.lat, lng: place.lng,
-        cost: fCost.value === '' ? 0 : Number(fCost.value),
-        cur: fCur.value,
-        memo: fMemo.value.trim(),
-      });
+      if (!validate()) return false;
+      store.put('items', { id: rec.id, ...collect() });
       toast(isNew ? '일정을 추가했습니다' : '저장했습니다');
     },
   });

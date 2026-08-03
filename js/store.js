@@ -42,8 +42,13 @@ export const DAY_COLORS = ['#5aa9ff', '#ff9f5a', '#5ad1a5', '#ff6fa8', '#c08bff'
 export const dayColor = i => DAY_COLORS[i % DAY_COLORS.length];
 
 // ── 빈 문서 ────────────────────────────────────────────────
-export function emptyDoc(title = '새 여행') {
-  const t = now();
+/**
+ * @param stamp 각 meta 필드의 최종수정시각. 기본은 "지금"(= 사용자가 방금 만든 여행).
+ *   원격 문서를 받기 전의 임시 껍데기로 쓸 때는 반드시 0 을 넘겨야 한다.
+ *   그러지 않으면 이 기본값들이 서버 값보다 최신으로 판정돼 남의 여행 제목·날짜를 덮어쓴다.
+ */
+export function emptyDoc(title = '새 여행', stamp = now()) {
+  const t = stamp;
   const today = new Date();
   const iso = d => d.toISOString().slice(0, 10);
   const end = new Date(today); end.setDate(end.getDate() + 2);
@@ -62,8 +67,12 @@ export function emptyDoc(title = '새 여행') {
     items: {},   // 일정
     checks: {},  // 준비물
     costs: {},   // 일정에 안 붙는 비용(항공권·숙소 등)
+    notes: {},   // 일차별 메모 (id = 'day-0' 형태)
   };
 }
+
+/** 병합 대상이 되는 컬렉션 — 여기에 추가하면 병합·정리에 자동 반영된다 */
+const COLLS = ['items', 'checks', 'costs', 'notes'];
 
 // ── 병합 ──────────────────────────────────────────────────
 function mergeMap(a = {}, b = {}) {
@@ -88,19 +97,16 @@ export function mergeDoc(local, remote) {
     meta[k] = useRemote ? remote.meta[k] : local.meta[k];
     metaMt[k] = Math.max(lt, rt);
   }
-  return {
-    v: 1,
-    meta, metaMt,
-    items: mergeMap(local.items, remote.items),
-    checks: mergeMap(local.checks, remote.checks),
-    costs: mergeMap(local.costs, remote.costs),
-  };
+  const out = { v: 1, meta, metaMt };
+  for (const c of COLLS) out[c] = mergeMap(local[c], remote[c]);
+  return out;
 }
 
 /** 오래된 삭제 표식 정리 — 30일 지난 tombstone 은 버린다 */
 function gc(doc) {
   const cutoff = now() - 30 * 864e5;
-  for (const key of ['items', 'checks', 'costs']) {
+  for (const key of COLLS) {
+    if (!doc[key]) { doc[key] = {}; continue; }
     for (const [id, r] of Object.entries(doc[key])) {
       if (r.del && (r.mt || 0) < cutoff) delete doc[key][id];
     }
@@ -151,7 +157,8 @@ class Store extends EventTarget {
     // 로컬 사본도 없고 서버도 못 쓰면 열 수 있는 게 없다(공유 링크를 로컬 전용 모드에서 연 경우)
     if (!local && !remoteEnabled()) return { notFound: true, offline: true };
 
-    this.doc = local || emptyDoc();
+    // 아직 원격을 못 받았으므로 mt 를 0 으로 둔다 → 서버 값이 무조건 이긴다
+    this.doc = local || emptyDoc('여행', 0);
     localStorage.setItem(LS_LAST, code);
     this.emit('change');
 
@@ -226,12 +233,24 @@ class Store extends EventTarget {
 
   put(coll, rec) {
     const id = rec.id || uid();
-    this.update(d => { d[coll][id] = { ...(d[coll][id] || {}), ...rec, id, mt: now() }; });
+    this.update(d => {
+      if (!d[coll]) d[coll] = {};   // 이 컬렉션이 없던 시절에 만들어진 문서 대비
+      d[coll][id] = { ...(d[coll][id] || {}), ...rec, id, mt: now() };
+    });
     return id;
   }
 
+  /** 삭제. 되돌리기 함수를 반환하므로 토스트의 "실행취소" 에 그대로 연결하면 된다. */
   del(coll, id) {
-    this.update(d => { d[coll][id] = { id, del: true, mt: now() }; });
+    const prev = this.doc[coll] && this.doc[coll][id];
+    this.update(d => {
+      if (!d[coll]) d[coll] = {};
+      d[coll][id] = { id, del: true, mt: now() };
+    });
+    return () => {
+      if (!prev || prev.del) return;
+      this.update(d => { d[coll][id] = { ...prev, mt: now() }; });
+    };
   }
 
   /** 삭제 표식을 뺀 실제 레코드 배열 */
@@ -343,12 +362,44 @@ export function tripDays(meta) {
   return out;
 }
 
+// ── 시간 유틸 ──────────────────────────────────────────────
+/** 'HH:MM' → 분. 값이 없으면 null. */
+export function toMin(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + (m || 0);
+}
+/** 분 → '1시간 20분' */
+export function fmtDur(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? (m ? `${h}시간 ${m}분` : `${h}시간`) : `${m}분`;
+}
+/** 일차별 메모의 고정 id */
+export const dayNoteId = day => 'day-' + day;
+
 // ── 금액 유틸 ──────────────────────────────────────────────
-/** 레코드의 금액을 원화로 환산 */
-export function toKRW(rec, meta) {
-  const amt = Number(rec.cost || rec.amount || 0);
+/** 금액 하나를 원화로 환산. cur 이 'loc' 이면 설정된 환율을 곱한다. */
+export function amountKRW(amount, cur, meta) {
+  const amt = Number(amount || 0);
   if (!amt) return 0;
-  if (rec.cur === 'loc' && Number(meta.curRate) > 0) return amt * Number(meta.curRate);
+  if (cur === 'loc' && Number(meta.curRate) > 0) return amt * Number(meta.curRate);
   return amt;
 }
+
+/** 레코드의 "예상" 금액 (items 는 cost, costs 는 amount) */
+export function toKRW(rec, meta) {
+  return amountKRW(rec.cost ?? rec.amount, rec.cur, meta);
+}
+
+/** 레코드의 "실제 지출" 금액. 입력 안 했으면 0. */
+export function spentKRW(rec, meta) {
+  return amountKRW(rec.spent, rec.cur, meta);
+}
+
+/** 실제 지출을 한 번이라도 입력했는지 (0원 지출과 미입력을 구분) */
+export const hasSpent = rec => rec.spent != null && rec.spent !== '';
+
 export const won = n => Math.round(n).toLocaleString('ko-KR') + '원';
+
+/** 부호를 붙인 차액 표기 — 예산 대비 절약/초과 */
+export const wonDiff = n => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(Math.round(n)).toLocaleString('ko-KR') + '원';

@@ -30,12 +30,22 @@ export function h(tag, attrs, ...kids) {
 export const $ = sel => document.querySelector(sel);
 
 let toastTimer;
-export function toast(msg) {
+/**
+ * 토스트. action 을 주면 오른쪽에 버튼이 붙는다 — 삭제 직후 "실행취소" 용.
+ * toast('삭제했습니다', { label: '실행취소', onClick: undo })
+ */
+export function toast(msg, action) {
   const t = $('#toast');
-  t.textContent = msg;
+  t.innerHTML = '';
+  t.append(h('span', msg));
+  if (action) {
+    t.append(h('button', {
+      onclick: () => { action.onClick(); t.classList.remove('show'); },
+    }, action.label));
+  }
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  toastTimer = setTimeout(() => t.classList.remove('show'), action ? 5000 : 2200);
 }
 
 /**
@@ -75,6 +85,39 @@ export function confirmDialog(title, message, confirmLabel = '삭제') {
       ],
       onClose: () => { if (!done) resolve(false); },
     });
+  });
+}
+
+/**
+ * 한 줄(또는 여러 줄) 입력을 받는 간단 모달. 취소하면 null 을 돌려준다.
+ * 준비물 이름 수정, 그룹 추가, 일차 메모처럼 필드 하나짜리 편집에 쓴다.
+ */
+export function promptDialog({ title, label, value = '', multiline = false, placeholder = '', okLabel = '저장', allowEmpty = false }) {
+  return new Promise(resolve => {
+    let done = false;
+    const inp = multiline
+      ? h('textarea.inp', { rows: 4, placeholder }, value)
+      : input({ value, placeholder });
+
+    const submit = () => {
+      const v = inp.value.trim();
+      if (!v && !allowEmpty) { toast('내용을 입력하세요'); return false; }
+      done = true; resolve(v);
+    };
+    if (!multiline) inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { if (submit() !== false) m.close(); }
+    });
+
+    const m = modal({
+      title,
+      body: h('div.form', field(label, inp)),
+      actions: [
+        { label: '취소', onClick: () => { done = true; resolve(null); } },
+        { label: okLabel, primary: true, onClick: submit },
+      ],
+      onClose: () => { if (!done) resolve(null); },
+    });
+    setTimeout(() => inp.focus(), 100);
   });
 }
 

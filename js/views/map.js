@@ -9,12 +9,12 @@ import { mapLinks } from '../geo.js';
 let mapEl = null;      // 지도 DOM (탭을 오갈 때 재사용)
 let map = null;
 let layer = null;
+let meLayer = null;    // 내 위치 마커
 let dayFilter = 'all'; // 'all' | 일차 index
 let pickMode = false;
 
 export function renderMap(root) {
-  const meta = store.doc.meta;
-  const days = tripDays(meta);
+  const days = tripDays(store.doc.meta);
   const items = store.all('items').filter(i => i.lat != null && i.lng != null);
 
   // 필터 칩
@@ -28,16 +28,15 @@ export function renderMap(root) {
   );
   root.append(chips);
 
-  if (!mapEl) {
-    mapEl = h('div#leafmap.mapbox');
-  }
+  if (!mapEl) mapEl = h('div#leafmap.mapbox');
   root.append(mapEl);
 
   root.append(h('div.map-tools',
     h('button', {
       class: 'btn small' + (pickMode ? ' primary' : ''),
       onclick: () => { pickMode = !pickMode; toast(pickMode ? '지도를 눌러 위치를 지정하세요' : '위치 찍기 해제'); store.emit('change'); },
-    }, pickMode ? '위치 찍는 중… (해제)' : '지도에서 위치 찍어 일정 추가'),
+    }, pickMode ? '위치 찍는 중… (해제)' : '📍 지도에서 위치 찍어 추가'),
+    h('button.btn.small', { onclick: locateMe }, '🧭 내 위치'),
     h('span.muted.small', `핀 ${items.length}개`),
   ));
 
@@ -97,14 +96,13 @@ function drawMap(items, days) {
       });
       const links = mapLinks(it).map(l => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join(' · ');
       const time = it.start ? `${it.start}${it.end ? '–' + it.end : ''} · ` : '';
-      L.marker(ll, { icon })
-        .bindPopup(
-          `<div class="pop"><b>${c.icon} ${esc(it.title)}</b>`
-          + `<div class="pop-sub">${days[d] ? days[d].label : ''} · ${time}${esc(it.placeName || '')}</div>`
-          + `<div class="pop-links">${links}</div></div>`
-        )
-        .on('dblclick', () => openItemEditor(it))
-        .addTo(layer);
+      const popup = h('div.pop',
+        h('b', `${c.icon} ${it.title}`),
+        h('div.pop-sub', `${days[d] ? days[d].label : ''} · ${time}${it.placeName || ''}`),
+        h('div.pop-links', { html: links }),
+        h('button.linkbtn', { onclick: () => openItemEditor(it) }, '✏️ 이 일정 편집'),
+      );
+      L.marker(ll, { icon }).bindPopup(popup).addTo(layer);
     });
 
     if (pts.length > 1) {
@@ -116,7 +114,25 @@ function drawMap(items, days) {
   else if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
 }
 
-const esc = s => String(s || '').replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+/** 브라우저 위치 권한을 받아 현재 위치를 찍는다 (여행 중 "나 지금 어디" 확인용) */
+function locateMe() {
+  if (!navigator.geolocation) { toast('이 브라우저는 위치를 지원하지 않습니다'); return; }
+  if (!map) { toast('지도를 먼저 불러오는 중입니다'); return; }
+  toast('위치를 확인하는 중…');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const ll = [pos.coords.latitude, pos.coords.longitude];
+      if (meLayer) meLayer.remove();
+      meLayer = L.marker(ll, {
+        icon: L.divIcon({ className: 'pin-wrap', html: '<div class="me-dot"></div>', iconSize: [14, 14], iconAnchor: [7, 7] }),
+      }).bindPopup('현재 위치').addTo(map);
+      map.setView(ll, 15);
+      toast('현재 위치를 찾았습니다');
+    },
+    err => toast(err.code === 1 ? '위치 권한이 거부되었습니다' : '위치를 찾지 못했습니다'),
+    { enableHighAccuracy: true, timeout: 8000 },
+  );
+}
 
 /** 탭을 떠날 때 지도 DOM 이 사라지지 않도록 보관 */
 export function detachMap() {

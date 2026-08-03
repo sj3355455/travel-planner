@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>여행 플래너</title>
-<meta name="theme-color" content="#0e1114">
+<meta name="theme-color" content="#ffffff" id="metaTheme">
+<script>
+  // 스타일시트보다 먼저 테마를 확정해 첫 페인트에서 흰 화면이 번쩍이지 않게 한다.
+  try { document.documentElement.dataset.theme = localStorage.getItem('tp.theme') || 'light'; } catch (e) { }
+</script>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,6 +28,8 @@
   </div>
   <div class="topbar-right">
     <span id="syncDot" class="sync-dot" title="동기화 상태"></span>
+    <button class="icon-btn" id="btnSearch" title="검색">🔍</button>
+    <button class="icon-btn" id="btnTheme" title="라이트/다크 전환">🌙</button>
     <button class="icon-btn" id="btnShare" title="공유">↗</button>
     <button class="icon-btn" id="btnSettings" title="여행 설정">⚙</button>
   </div>

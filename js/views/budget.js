@@ -1,17 +1,27 @@
-// 예산 탭 — 일정에 적은 예상 금액 + 일정 밖 비용(항공권·숙소 등)을 합쳐 총액을 낸다
+// 예산 탭 — 일정에 적은 예상 금액 + 일정 밖 비용(항공권·숙소 등)을 합쳐 총액을 낸다.
+// 실제 지출을 입력하면 예상 대비 차액까지 같이 보여준다.
 import { h, modal, input, select, field, toast, confirmDialog } from '../ui.js';
-import { store, tripDays, catOf, CATEGORIES, toKRW, won, dayColor } from '../store.js';
+import {
+  store, tripDays, catOf, CATEGORIES, toKRW, spentKRW, hasSpent, won, wonDiff, dayColor,
+} from '../store.js';
 
 export function renderBudget(root) {
   const meta = store.doc.meta;
   const days = tripDays(meta);
   const items = store.all('items');
   const extras = store.all('costs');
+  const all = [...items, ...extras];
 
   const itemTotal = items.reduce((s, i) => s + toKRW(i, meta), 0);
   const extraTotal = extras.reduce((s, c) => s + toKRW(c, meta), 0);
   const total = itemTotal + extraTotal;
   const people = Math.max(1, Number(meta.people) || 1);
+
+  const spentTotal = all.reduce((s, r) => s + spentKRW(r, meta), 0);
+  const anySpent = all.some(hasSpent);
+  // 실제 지출을 입력한 항목만 골라 "그 항목들의 예상액"과 비교해야 공정하다
+  const spentPlanned = all.filter(hasSpent).reduce((s, r) => s + toKRW(r, meta), 0);
+  const diff = spentTotal - spentPlanned;
 
   // ── 총액 카드 ───────────────────────────────────────────
   root.append(h('div.total-card',
@@ -28,12 +38,28 @@ export function renderBudget(root) {
       h('span', `일정 ${won(itemTotal)}`),
       h('span', `기타 ${won(extraTotal)}`),
     ),
+    anySpent ? h('div.spent-row',
+      h('div',
+        h('span.muted.small', '실제 지출 '),
+        h('strong', won(spentTotal)),
+      ),
+      h('span', {
+        class: diff > 0 ? 'over' : diff < 0 ? 'under' : 'muted',
+      }, diff === 0 ? '예상과 동일' : `예상 대비 ${wonDiff(diff)}`),
+    ) : null,
   ));
+
+  if (!anySpent) {
+    root.append(h('p.muted.small', { style: { margin: '-6px 2px 16px' } },
+      '💡 일정이나 비용을 열어 "실제 지출"을 넣으면 예산 대비 차액이 여기에 표시됩니다.'));
+  }
 
   // ── 분류별 ──────────────────────────────────────────────
   const byCat = new Map();
-  for (const i of items) byCat.set(i.cat || 'etc', (byCat.get(i.cat || 'etc') || 0) + toKRW(i, meta));
-  for (const c of extras) byCat.set(c.cat || 'etc', (byCat.get(c.cat || 'etc') || 0) + toKRW(c, meta));
+  for (const r of all) {
+    const k = r.cat || 'etc';
+    byCat.set(k, (byCat.get(k) || 0) + toKRW(r, meta));
+  }
   const catRows = [...byCat.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
 
   if (catRows.length) {
@@ -73,12 +99,16 @@ export function renderBudget(root) {
   if (!extras.length) {
     box.append(h('p.muted.small', '항공권, 숙소, 환전 수수료처럼 특정 일정에 붙지 않는 비용을 여기에 넣으세요.'));
   } else {
-    for (const c of extras.sort((a, b) => toKRW(b, meta) - toKRW(a, meta))) {
+    for (const c of [...extras].sort((a, b) => toKRW(b, meta) - toKRW(a, meta))) {
       const cat = catOf(c.cat);
+      const est = toKRW(c, meta);
       box.append(h('div.line-row', { onclick: () => openCostEditor(c) },
-        h('span.cat-dot', { style: { background: cat.color } }, cat.icon),
-        h('span.grow', c.label || '(이름 없음)'),
-        h('strong', won(toKRW(c, meta))),
+        h('span.cat-dot', { style: { background: cat.color + '26', color: cat.color } }, cat.icon),
+        h('div.grow',
+          h('div', c.label || '(이름 없음)'),
+          hasSpent(c) ? h('div.muted.small', `실제 ${won(spentKRW(c, meta))}`) : null,
+        ),
+        h('strong.money', won(est)),
       ));
     }
   }
@@ -90,6 +120,7 @@ function openCostEditor(existing) {
   const rec = existing || { cat: 'etc', cur: 'krw' };
   const fLabel = input({ value: rec.label || '', placeholder: '예: 왕복 항공권' });
   const fAmt = input({ type: 'number', inputmode: 'decimal', min: '0', value: rec.amount ?? '', placeholder: '0' });
+  const fSpent = input({ type: 'number', inputmode: 'decimal', min: '0', value: rec.spent ?? '', placeholder: '아직 안 씀' });
   const fCur = select(
     [{ value: 'krw', label: '원' }, ...(meta.curLabel ? [{ value: 'loc', label: meta.curLabel }] : [])],
     rec.cur || 'krw',
@@ -101,7 +132,10 @@ function openCostEditor(existing) {
   if (existing) actions.push({
     label: '삭제', danger: true,
     onClick: () => setTimeout(async () => {
-      if (await confirmDialog('비용 삭제', `"${rec.label}"을(를) 삭제할까요?`)) { store.del('costs', rec.id); toast('삭제했습니다'); }
+      if (await confirmDialog('비용 삭제', `"${rec.label}"을(를) 삭제할까요?`)) {
+        const undo = store.del('costs', rec.id);
+        toast('삭제했습니다', { label: '실행취소', onClick: undo });
+      }
     }, 200),
   });
   actions.push({ label: '취소' });
@@ -115,6 +149,7 @@ function openCostEditor(existing) {
         id: rec.id,
         label: fLabel.value.trim(),
         amount: fPer.checked ? raw * people : raw,
+        spent: fSpent.value === '' ? null : Number(fSpent.value),
         cur: fCur.value,
         cat: fCat.value,
         perPerson: fPer.checked,
@@ -127,7 +162,8 @@ function openCostEditor(existing) {
     title: existing ? '비용 편집' : '비용 추가',
     body: h('div.form',
       field('항목', fLabel),
-      h('div.row2', field('금액', fAmt), field('통화', fCur)),
+      h('div.row2', field('예상 금액', fAmt), field('통화', fCur)),
+      field('실제 지출', fSpent, '실제로 결제한 금액'),
       field('분류', fCat),
       h('label.check-inline', fPer, h('span', `1인 기준 금액으로 입력 (× ${Math.max(1, Number(meta.people) || 1)}명)`)),
     ),
