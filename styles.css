@@ -361,6 +361,32 @@ textarea.inp { resize: vertical; font-family: inherit; }
 .cat-btn.on { font-weight: 700; }
 .cat-btn .ic { font-size: 14px; }
 
+/* 분류만 나오는 단계에서는 큼직하게 */
+.cat-pick.big { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 4px; }
+.cat-pick.big .cat-btn { flex-direction: column; gap: 6px; padding: 18px 8px; font-size: 14px; }
+.cat-pick.big .cat-btn .ic { font-size: 24px; }
+
+/* ── 일정 추가 마법사 (분류 → 장소 → 시간) ───────────────── */
+.wiz-head { margin-bottom: 2px; }
+.wiz-steps { display: flex; gap: 6px; justify-content: center; }
+.wiz-step {
+  font-size: 12px; color: var(--muted); background: var(--surface-2);
+  border-radius: 999px; padding: 4px 12px;
+}
+.wiz-step.on { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.wiz-step.done { color: var(--ok); }
+.wiz-title { text-align: center; font-size: 17px; font-weight: 700; margin-top: 6px; }
+.wiz-sub { text-align: center; margin-top: -6px; }
+.wiz-more { align-self: center; margin-top: 2px; }
+
+/* 검색한 장소가 맞는지 확인하는 작은 지도 */
+.mini-map {
+  height: 190px; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--line); background: var(--surface-2);
+}
+.mini-map[hidden], .mini-map-hint[hidden] { display: none; }
+.mini-map .leaflet-control-attribution { font-size: 9px; }
+
 .geo-results { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow-y: auto; }
 .geo-row {
   text-align: left; background: var(--surface-2); border: 1px solid var(--line); color: var(--fg);
@@ -499,6 +525,7 @@ body.gated { overflow: auto; }
   display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px;
   border-top: 1px solid var(--line); flex-wrap: wrap;
 }
+.modal-foot[hidden] { display: none; }
 .modal-foot .btn.danger { margin-right: auto; }
 
 /* ── 토스트 ───────────────────────────────────────────── */

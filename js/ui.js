@@ -51,26 +51,38 @@ export function toast(msg, action) {
 /**
  * 시트형 모달. body 는 HTMLElement, actions 는 [{label, primary, danger, onClick}].
  * onClick 이 false 를 반환하면 닫히지 않는다(검증 실패 시 사용).
+ *
+ * 돌려주는 setTitle/setActions 로 열려 있는 채로 머리말·버튼을 갈아끼울 수 있다.
+ * 단계별로 진행하는 화면(일정 추가 마법사)이 이걸 쓴다.
  */
 export function modal({ title, body, actions = [], onClose }) {
   const root = $('#modalRoot');
   const close = () => { wrap.classList.remove('in'); setTimeout(() => wrap.remove(), 180); onClose && onClose(); };
 
-  const btns = actions.map(a => h('button', {
-    class: 'btn' + (a.primary ? ' primary' : '') + (a.danger ? ' danger' : ''),
-    onclick: () => { if (a.onClick && a.onClick() === false) return; close(); },
-  }, a.label));
+  const foot = h('div.modal-foot');
+  const setActions = (list = []) => {
+    foot.innerHTML = '';
+    foot.hidden = !list.length;
+    for (const a of list) {
+      foot.append(h('button', {
+        class: 'btn' + (a.primary ? ' primary' : '') + (a.danger ? ' danger' : ''),
+        onclick: () => { if (a.onClick && a.onClick() === false) return; close(); },
+      }, a.label));
+    }
+  };
+  setActions(actions);
 
+  const heading = h('strong', title);
   const wrap = h('div.modal-wrap', { onclick: e => { if (e.target === wrap) close(); } },
     h('div.modal',
-      h('div.modal-head', h('strong', title), h('button.icon-btn', { onclick: close }, '✕')),
+      h('div.modal-head', heading, h('button.icon-btn', { onclick: close }, '✕')),
       h('div.modal-body', body),
-      btns.length ? h('div.modal-foot', ...btns) : null,
+      foot,
     ),
   );
   root.append(wrap);
   setTimeout(() => wrap.classList.add('in'), 0);   // rAF 는 탭이 숨겨져 있으면 안 돌아 setTimeout 사용
-  return { close, el: wrap };
+  return { close, el: wrap, setActions, setTitle: t => { heading.textContent = t; } };
 }
 
 export function confirmDialog(title, message, confirmLabel = '삭제') {
