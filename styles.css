@@ -99,6 +99,13 @@ main {
 main.view-map { padding-left: 0; padding-right: 0; }
 main.view-map .chips, main.view-map .map-tools { padding-left: 12px; padding-right: 12px; }
 
+/* 본문 맨 아래 앱 버전 */
+.app-version {
+  margin-top: 20px; padding: 0 12px;
+  text-align: center; font-size: 11.5px; color: var(--muted); opacity: .7;
+}
+.app-version:empty { display: none; }
+
 /* ── 하단 탭 ───────────────────────────────────────────── */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
@@ -538,7 +545,7 @@ body.gated { overflow: auto; }
 /* ── 인쇄 (시간표를 종이/PDF 로) ──────────────────────── */
 @media print {
   :root { --bg: #fff; --surface: #fff; --surface-2: #f2f4f7; --fg: #000; --line: #bbb; }
-  .topbar, .tabbar, .fab, .toast, .tt-toolbar, .modal-wrap { display: none !important; }
+  .topbar, .tabbar, .fab, .toast, .tt-toolbar, .modal-wrap, .app-version { display: none !important; }
   main { margin: 0 !important; padding: 0 !important; overflow: visible !important; max-width: none; }
   .tt-wrap { overflow: visible !important; }
   .tt-block { box-shadow: none; border-left-width: 4px; print-color-adjust: exact; -webkit-print-color-adjust: exact; }

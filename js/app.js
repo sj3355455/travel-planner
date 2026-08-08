@@ -31,6 +31,42 @@ const VIEWS = {
 };
 let tab = 'plan';
 
+// ── 앱 버전 ───────────────────────────────────────────────
+// 버전의 원본은 sw.js 의 VERSION 한 줄이다(배포할 때 올라가는 그 값).
+// 서비스 워커가 앱을 잡고 있으면 물어보고(오프라인에서도 됨),
+// 아직 제어권이 없으면(첫 방문·개발 중) sw.js 를 직접 읽어서 뽑는다.
+let appVersion = '';
+
+function askWorkerVersion() {
+  return new Promise(resolve => {
+    const sw = navigator.serviceWorker;
+    if (!sw || !sw.controller) return resolve(null);
+    const onMsg = e => {
+      if (!e.data || e.data.type !== 'appVersion') return;
+      sw.removeEventListener('message', onMsg);
+      resolve(e.data.version);
+    };
+    sw.addEventListener('message', onMsg);
+    sw.controller.postMessage('getVersion');
+    // 답이 없어도 영영 매달려 있지 않게 한다
+    setTimeout(() => { sw.removeEventListener('message', onMsg); resolve(null); }, 1500);
+  });
+}
+
+async function loadAppVersion() {
+  let v = await askWorkerVersion();
+  if (!v) {
+    try {
+      const src = await fetch('sw.js', { cache: 'no-store' }).then(r => r.text());
+      v = (src.match(/VERSION\s*=\s*'([^']+)'/) || [])[1] || '';
+    } catch { /* 오프라인 + 워커도 없으면 그냥 안 보여준다 */ }
+  }
+  if (!v) return;
+  appVersion = v;
+  const el = $('#appVersion');
+  if (el) el.textContent = v;
+}
+
 // ── 렌더 ──────────────────────────────────────────────────
 function render() {
   const meta = store.doc.meta;
@@ -47,6 +83,7 @@ function render() {
   root.innerHTML = '';
   root.className = 'view-' + tab;
   VIEWS[tab](root);
+  root.append(h('div#appVersion.app-version', appVersion));
   renderSync();
 }
 
@@ -647,3 +684,5 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     });
   }).catch(() => { });
 }
+
+loadAppVersion();
