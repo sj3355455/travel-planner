@@ -343,6 +343,17 @@ main.view-map .chips, main.view-map .map-tools { padding-left: 12px; padding-rig
 textarea.inp { resize: vertical; font-family: inherit; }
 .list-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 
+/* 분류 고르기 — 셀렉트 대신 한 번에 눌러 고르는 버튼 묶음 */
+.cat-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.cat-btn {
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--fg);
+  border-radius: 10px; padding: 10px 6px; font-size: 13px; cursor: pointer;
+}
+.cat-btn:hover { border-color: var(--line-strong); }
+.cat-btn.on { font-weight: 700; }
+.cat-btn .ic { font-size: 14px; }
+
 .geo-results { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow-y: auto; }
 .geo-row {
   text-align: left; background: var(--surface-2); border: 1px solid var(--line); color: var(--fg);

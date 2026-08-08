@@ -1,4 +1,8 @@
 // 일정 항목 추가/편집 시트 — 일정 탭·지도 탭·검색 양쪽에서 쓴다.
+//
+// 추가할 때는 분류·장소·시간 세 가지만 고르면 된다. 일차는 열려 있던 화면에서 가져오고,
+// 이름은 고른 장소 이름을 쓴다. 금액·메모처럼 나중에 채워도 되는 것들은 '자세히 입력'으로 미룬다.
+// 편집할 때는 처음부터 전체 폼을 보여준다.
 import { h, modal, input, select, field, toast, confirmDialog } from './ui.js';
 import { store, CATEGORIES, tripDays } from './store.js';
 import { searchPlace, debounce } from './geo.js';
@@ -9,14 +13,15 @@ export function openItemEditor(existing, defaults = {}) {
   const days = tripDays(store.doc.meta);
   const meta = store.doc.meta;
 
+  let detailed = !isNew;   // 추가는 간단 폼으로 시작, 편집은 전체 폼
+
   // 선택된 좌표를 담아두는 곳 (검색 결과를 고르면 채워진다)
   let place = { name: rec.placeName || '', lat: rec.lat ?? null, lng: rec.lng ?? null, addr: rec.addr || '' };
 
-  const fTitle = input({ value: rec.title || '', placeholder: '예: 지우펀 야시장' });
+  const fTitle = input({ value: rec.title || '', placeholder: '비워두면 장소 이름으로 저장' });
   const fDay = select(days.map(d => ({ value: String(d.index), label: `${d.label} · ${d.sub}` })), String(rec.day ?? 0));
   const fStart = input({ type: 'time', value: rec.start || '' });
   const fEnd = input({ type: 'time', value: rec.end || '' });
-  const fCat = select(CATEGORIES.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` })), rec.cat);
   const fCost = input({ type: 'number', inputmode: 'decimal', min: '0', value: rec.cost ?? '', placeholder: '0' });
   const fSpent = input({ type: 'number', inputmode: 'decimal', min: '0', value: rec.spent ?? '', placeholder: '아직 안 씀' });
   const fCur = select(
@@ -25,10 +30,27 @@ export function openItemEditor(existing, defaults = {}) {
   );
   const fMemo = h('textarea.inp', { rows: 2, placeholder: '메모 (예약번호, 준비물 등)' }, rec.memo || '');
 
+  // ── 분류 — 한 번 탭해서 고르는 버튼 묶음 ─────────────────
+  let cat = rec.cat;
+  const catRow = h('div.cat-pick');
+  const renderCat = () => {
+    catRow.innerHTML = '';
+    for (const c of CATEGORIES) {
+      const on = c.id === cat;
+      catRow.append(h('button', {
+        class: 'cat-btn' + (on ? ' on' : ''),
+        style: on ? { borderColor: c.color, background: c.color + '1f', color: c.color } : {},
+        onclick: () => { cat = c.id; renderCat(); },
+      }, h('span.ic', c.icon), h('span', c.label)));
+    }
+  };
+  renderCat();
+
   // ── 장소 검색 ────────────────────────────────────────────
   const fPlace = input({ value: place.name, placeholder: '장소명 검색 (예: 九份老街)' });
   const results = h('div.geo-results');
   const placeInfo = h('div.geo-picked');
+  const placeBox = h('div', fPlace, results, placeInfo);
 
   const renderPicked = () => {
     placeInfo.innerHTML = '';
@@ -71,26 +93,51 @@ export function openItemEditor(existing, defaults = {}) {
 
   fPlace.addEventListener('input', () => { place.name = fPlace.value; runSearch(fPlace.value); });
 
-  const body = h('div.form',
-    field('일정 이름', fTitle),
-    h('div.row2', field('일차', fDay), field('분류', fCat)),
-    h('div.row2', field('시작', fStart), field('종료', fEnd)),
-    field('장소', h('div', fPlace, results, placeInfo)),
-    h('div.row2',
-      field('예상 금액', fCost),
-      field('통화', fCur, meta.curLabel ? null : '설정에서 현지 통화를 넣으면 환산됩니다'),
-    ),
-    field('실제 지출', fSpent, '여행 중에 실제로 쓴 금액. 예산 탭에서 예상과 비교됩니다'),
-    field('메모', fMemo),
-  );
+  // ── 폼 본문 — 간단/자세히 두 모양 ────────────────────────
+  const body = h('div.form');
+
+  /** 간단 폼에서 이 일정이 어느 날에 들어가는지 알려준다 */
+  const dayHint = () => {
+    const d = days[Number(fDay.value)];
+    if (!d) return h('p.muted.small', '여행 날짜를 정하면 일차가 붙습니다. 지금은 1일차로 저장돼요.');
+    return h('p.muted.small', `${d.label} · ${d.sub}에 추가됩니다`);
+  };
+
+  const renderBody = () => {
+    body.innerHTML = '';
+    if (!detailed) {
+      body.append(
+        dayHint(),
+        field('분류', catRow),
+        field('장소', placeBox),
+        field('시간', fStart, '종료 시각·금액·메모는 저장한 뒤 카드를 눌러 채우면 됩니다'),
+        h('button.linkbtn', { onclick: () => { detailed = true; renderBody(); } }, '＋ 이름·금액·메모까지 자세히 입력'),
+      );
+    } else {
+      body.append(
+        field('일정 이름', fTitle),
+        field('분류', catRow),
+        field('일차', fDay),
+        h('div.row2', field('시작', fStart), field('종료', fEnd)),
+        field('장소', placeBox),
+        h('div.row2',
+          field('예상 금액', fCost),
+          field('통화', fCur, meta.curLabel ? null : '설정에서 현지 통화를 넣으면 환산됩니다'),
+        ),
+        field('실제 지출', fSpent, '여행 중에 실제로 쓴 금액. 예산 탭에서 예상과 비교됩니다'),
+        field('메모', fMemo),
+      );
+    }
+  };
+  renderBody();
 
   /** 폼에서 현재 값을 읽어 저장용 레코드로 만든다 */
   const collect = () => ({
-    day: Number(fDay.value),
+    day: Number(fDay.value) || 0,
     start: fStart.value,
     end: fEnd.value,
     title: fTitle.value.trim() || place.name.trim(),
-    cat: fCat.value,
+    cat,
     placeName: place.name.trim(),
     addr: place.addr || '',
     lat: place.lat, lng: place.lng,
@@ -101,7 +148,7 @@ export function openItemEditor(existing, defaults = {}) {
   });
 
   const validate = () => {
-    if (!collect().title) { toast('일정 이름을 입력하세요'); return false; }
+    if (!collect().title) { toast(detailed ? '일정 이름이나 장소를 입력하세요' : '장소를 입력하세요'); return false; }
     if (fStart.value && fEnd.value && fEnd.value < fStart.value) { toast('종료 시각이 시작보다 빠릅니다'); return false; }
     return true;
   };
@@ -142,5 +189,5 @@ export function openItemEditor(existing, defaults = {}) {
   });
 
   modal({ title: isNew ? '일정 추가' : '일정 편집', body, actions });
-  setTimeout(() => fTitle.focus(), 100);
+  setTimeout(() => (isNew ? fPlace : fTitle).focus(), 100);
 }
